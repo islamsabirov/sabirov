@@ -494,28 +494,71 @@ async def cb_ch_add(update: Update, ctx):
     q = update.callback_query
     await q.answer()
     await q.edit_message_text(
-        "➕ <b>Kanal qo'shish — 1/3</b>\n\nKanal ID yuboring:\n<i>@mykanal yoki -1001234567890</i>\n\n⚠️ Botni kanalga admin qilib qo'shing!\n\n❌ Bekor: /cancel",
+        "➕ <b>Kanal qo'shish</b>\n\n"
+        "Telegram kanal yoki guruh ID sini yuboring:\n\n"
+        "📌 <b>Formatlar:</b>\n"
+        "• Username: <code>@mykanal</code>\n"
+        "• ID: <code>-1001234567890</code>\n\n"
+        "💡 Kanal ID olish: @JsonDumpBot ga kanaldan post forward qiling\n\n"
+        "⚠️ Botni kanalga <b>admin</b> qilib qo'shing!\n\n"
+        "❌ Bekor: /cancel",
         parse_mode=H
     )
     return S_CH_ID
 
 
 async def st_ch_id(update: Update, ctx):
-    ctx.user_data["ch_id"] = update.message.text.strip()
-    await update.message.reply_text("📌 Kanal nomini yuboring — 2/3:\n<i>Bu nom tugmada ko'rinadi</i>", parse_mode=H)
+    text = update.message.text.strip()
+    # Faqat Telegram kanal/guruh qabul qilish
+    if not (text.startswith("@") or text.startswith("-100")):
+        await update.message.reply_text(
+            "❌ Noto'g'ri format!\n\n"
+            "Faqat Telegram kanal/guruh:\n"
+            "• <code>@mykanal</code>\n"
+            "• <code>-1001234567890</code>\n\n"
+            "Qayta yuboring:",
+            parse_mode=H
+        )
+        return S_CH_ID
+    ctx.user_data["ch_id"] = text
+    await update.message.reply_text(
+        "📌 Kanal nomini yuboring:\n<i>Bu nom tugmada ko'rinadi</i>",
+        parse_mode=H
+    )
     return S_CH_TITLE
 
 
 async def st_ch_title(update: Update, ctx):
     ctx.user_data["ch_title"] = update.message.text.strip()
-    await update.message.reply_text("🔗 Kanal havolasini yuboring — 3/3:\n<i>Masalan: https://t.me/mykanal</i>", parse_mode=H)
+    ch_id = ctx.user_data["ch_id"]
+    # Havolani avtomatik yaratish
+    if ch_id.startswith("@"):
+        auto_link = f"https://t.me/{ch_id[1:]}"
+    else:
+        auto_link = ""
+    ctx.user_data["ch_auto_link"] = auto_link
+    await update.message.reply_text(
+        f"🔗 Kanal havolasini yuboring:\n"
+        f"<i>Masalan: https://t.me/mykanal</i>\n\n"
+        f"{'💡 Avtomatik: <code>' + auto_link + '</code> — o\\'zgartirmasangiz - yuboring' if auto_link else ''}",
+        parse_mode=H
+    )
     return S_CH_LINK
 
 
 async def st_ch_link(update: Update, ctx):
-    db.add_channel(ctx.user_data["ch_id"], ctx.user_data["ch_title"], update.message.text.strip())
+    text = update.message.text.strip()
+    # Avtomatik havola
+    if text == "-" and ctx.user_data.get("ch_auto_link"):
+        link = ctx.user_data["ch_auto_link"]
+    else:
+        link = text
+    db.add_channel(ctx.user_data["ch_id"], ctx.user_data["ch_title"], link)
     await update.message.reply_text(
-        f"✅ <b>Kanal qo'shildi!</b>\n\n🆔 ID: <code>{ctx.user_data['ch_id']}</code>\n📌 Nom: {ctx.user_data['ch_title']}",
+        f"✅ <b>Kanal qo'shildi!</b>\n\n"
+        f"🆔 ID: <code>{ctx.user_data['ch_id']}</code>\n"
+        f"📌 Nom: {ctx.user_data['ch_title']}\n"
+        f"🔗 Havola: {link}",
         parse_mode=H, reply_markup=kb.channels_kb()
     )
     ctx.user_data.clear()
@@ -527,13 +570,59 @@ async def cb_ch_list(update: Update, ctx):
     await q.answer()
     chs = db.get_channels()
     if not chs:
-        await q.edit_message_text("📋 Hozircha kanallar yo'q.", reply_markup=kb.channels_kb())
+        await q.edit_message_text(
+            "📋 Hozircha kanallar yo'q.",
+            reply_markup=kb.channels_kb()
+        )
         return
-    lines = ["📋 <b>Majburiy kanallar:</b>\n"]
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    lines = [f"📋 <b>Majburiy kanallar ({len(chs)} ta):</b>\n"]
+    buttons = []
     for c in chs:
-        lines.append(f"🔢 <b>{c['id']}</b> | {c['title']} | <code>{c['channel_id']}</code>")
-    lines.append("\n<i>O'chirish: /delch [raqam]\nMasalan: /delch 1</i>")
-    await q.edit_message_text("\n".join(lines), parse_mode=H, reply_markup=kb.channels_kb())
+        lines.append(f"• {c['title']} | <code>{c['channel_id']}</code>")
+        buttons.append([InlineKeyboardButton(f"🗑 {c['title']} ni o'chirish", callback_data=f"delch_{c['id']}")])
+    buttons.append([InlineKeyboardButton("🔙 Orqaga", callback_data="ch_back")])
+    await q.edit_message_text(
+        "\n".join(lines),
+        parse_mode=H,
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+async def cb_ch_delete_inline(update: Update, ctx):
+    q = update.callback_query
+    await q.answer()
+    if not db.is_admin(q.from_user.id):
+        return
+    ch_id = int(q.data.replace("delch_", ""))
+    if db.del_channel(ch_id):
+        await q.answer("✅ Kanal o'chirildi!", show_alert=True)
+        # Ro'yxatni yangilash
+        chs = db.get_channels()
+        if not chs:
+            await q.edit_message_text("📋 Kanallar yo'q.", reply_markup=kb.channels_kb())
+            return
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        lines = [f"📋 <b>Majburiy kanallar ({len(chs)} ta):</b>\n"]
+        buttons = []
+        for c in chs:
+            lines.append(f"• {c['title']} | <code>{c['channel_id']}</code>")
+            buttons.append([InlineKeyboardButton(f"🗑 {c['title']} ni o'chirish", callback_data=f"delch_{c['id']}")])
+        buttons.append([InlineKeyboardButton("🔙 Orqaga", callback_data="ch_back")])
+        await q.edit_message_text("\n".join(lines), parse_mode=H, reply_markup=InlineKeyboardMarkup(buttons))
+    else:
+        await q.answer("❌ Topilmadi.", show_alert=True)
+
+
+async def cb_ch_back(update: Update, ctx):
+    q = update.callback_query
+    await q.answer()
+    chs = db.get_channels()
+    await q.edit_message_text(
+        f"🔒 <b>Majburiy obuna kanallar</b>\n\nHozirda: <b>{len(chs)} ta</b> kanal",
+        parse_mode=H,
+        reply_markup=kb.channels_kb()
+    )
 
 
 async def cb_ch_del(update: Update, ctx):
@@ -543,11 +632,8 @@ async def cb_ch_del(update: Update, ctx):
     if not chs:
         await q.edit_message_text("❌ O'chirish uchun kanallar yo'q.", reply_markup=kb.channels_kb())
         return
-    lines = ["🗑 <b>Qaysi kanalni o'chirish?</b>\n"]
-    for c in chs:
-        lines.append(f"🔢 <b>{c['id']}</b> | {c['title']}")
-    lines.append("\n<i>/delch [raqam]\nMasalan: /delch 1</i>")
-    await q.edit_message_text("\n".join(lines), parse_mode=H, reply_markup=kb.channels_kb())
+    # Ro'yxatni ko'rsatish
+    await cb_ch_list(update, ctx)
 
 
 async def cmd_delch(update: Update, ctx):
@@ -844,6 +930,8 @@ async def st_save_welcome(update: Update, ctx):
 
 
 async def msg_orqaga(update: Update, ctx):
+    """Orqaga tugmasi — /start ga qaytaradi"""
+    ctx.user_data.clear()
     await cmd_start(update, ctx)
 
 
@@ -945,6 +1033,8 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_mv_back,  pattern="^mv_back$"))
     app.add_handler(CallbackQueryHandler(cb_ch_list,  pattern="^ch_list$"))
     app.add_handler(CallbackQueryHandler(cb_ch_del,   pattern="^ch_del$"))
+    app.add_handler(CallbackQueryHandler(cb_ch_delete_inline, pattern=r"^delch_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_ch_back,  pattern="^ch_back$"))
     app.add_handler(CallbackQueryHandler(cb_adm_list, pattern="^adm_list$"))
     app.add_handler(CallbackQueryHandler(cb_st_cards, pattern="^st_cards$"))
     app.add_handler(CallbackQueryHandler(cb_st_back,  pattern="^st_back$"))
