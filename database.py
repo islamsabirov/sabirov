@@ -31,9 +31,10 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS channels (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            channel_id TEXT UNIQUE NOT NULL,
+            channel_id TEXT DEFAULT '',
             title      TEXT DEFAULT '',
-            link       TEXT DEFAULT ''
+            link       TEXT DEFAULT '',
+            ch_type    TEXT DEFAULT 'public'
         );
         CREATE TABLE IF NOT EXISTS payments (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,6 +54,11 @@ def init_db():
             value TEXT DEFAULT ''
         );
     """)
+    try:
+        db.execute("ALTER TABLE channels ADD COLUMN ch_type TEXT DEFAULT 'public'")
+        db.commit()
+    except Exception:
+        pass
     defaults = [
         ("sub_price",    "15000"),
         ("sub_days",     "30"),
@@ -61,7 +67,7 @@ def init_db():
         ("card_visa",    "4111 0000 0000 0000"),
         ("card_owner",   "Admin"),
         ("movie_ch",     ""),
-        ("welcome_text", "Kino kodini yuboring 🎬"),
+        ("welcome_text", "Kino kodini yuboring"),
     ]
     for k, v in defaults:
         db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (k, v))
@@ -190,16 +196,31 @@ def get_movies(limit=30, offset=0):
     db.close()
     return r
 
-def add_channel(ch_id, title, link):
+# ch_type: 'public'  = Ommaviy/Shaxsiy Telegram kanal/guruh
+#          'private' = Shaxsiy/Sorovli havola
+#          'link'    = Oddiy havola (Instagram, sayt va h.k.)
+
+def add_channel(channel_id, title, link, ch_type="public"):
     db = con()
-    db.execute("INSERT OR REPLACE INTO channels(channel_id,title,link) VALUES(?,?,?)",
-               (ch_id, title, link))
+    db.execute(
+        "INSERT INTO channels(channel_id,title,link,ch_type) VALUES(?,?,?,?)",
+        (channel_id, title, link, ch_type)
+    )
     db.commit()
     db.close()
 
 def get_channels():
     db = con()
     r = db.execute("SELECT * FROM channels").fetchall()
+    db.close()
+    return r
+
+def get_checkable_channels():
+    """Faqat Telegram API orqali tekshiriladigan kanallar"""
+    db = con()
+    r = db.execute(
+        "SELECT * FROM channels WHERE ch_type IN ('public','private')"
+    ).fetchall()
     db.close()
     return r
 
