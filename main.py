@@ -139,9 +139,9 @@ async def msg_find_movie(update: Update, ctx):
         await update.message.reply_text("⚠️ Kino kanal hali sozlanmagan.\nAdmin bilan bog'laning.")
         return
     try:
-        await ctx.bot.forward_message(chat_id=u.id, from_chat_id=ch, message_id=int(movie["msg_id"]))
+        await ctx.bot.copy_message(chat_id=u.id, from_chat_id=ch, message_id=int(movie["msg_id"]))
     except TelegramError as e:
-        logging.error(f"Forward xato: {e}")
+        logging.error(f"Copy xato: {e}")
         await update.message.reply_text("⚠️ Kinoni yuborishda xatolik yuz berdi.\nAdmin bilan bog'laning.")
 
 
@@ -363,7 +363,7 @@ async def st_mv_title(update: Update, ctx):
     test_text = ""
     if ch:
         try:
-            await ctx.bot.forward_message(chat_id=update.effective_user.id, from_chat_id=ch, message_id=int(msgid))
+            await ctx.bot.copy_message(chat_id=update.effective_user.id, from_chat_id=ch, message_id=int(msgid))
             test_text = "\n\n✅ Yuqorida test ko'rinishi:"
         except Exception as e:
             test_text = f"\n\n⚠️ Test xato: {e}"
@@ -605,12 +605,11 @@ async def st_adm_del(update: Update, ctx):
 async def cb_adm_list(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    lines = ["📋 <b>Adminlar ro'yxati:</b>\n"]
-    for aid in ADMIN_IDS:
-        lines.append(f"👑 <code>{aid}</code> — Asosiy admin")
-    for a in db.get_admins():
-        lines.append(f"👮 <code>{a['id']}</code> — {a['name']}")
-    await q.edit_message_text("\n".join(lines), parse_mode=H, reply_markup=kb.admins_kb())
+    total = len(ADMIN_IDS) + len(db.get_admins())
+    await q.edit_message_text(
+        f"📋 <b>Adminlar ro'yxati</b>\n\nJami: <b>{total} ta</b> admin",
+        parse_mode=H, reply_markup=kb.admins_kb()
+    )
 
 
 # ══════════ BROADCAST ══════════
