@@ -1,7 +1,14 @@
-from telegram import (InlineKeyboardButton as Btn, InlineKeyboardMarkup as IKM,
-                      ReplyKeyboardMarkup as RKM, KeyboardButton as KB)
+from telegram import (
+    InlineKeyboardButton as Btn,
+    InlineKeyboardMarkup as IKM,
+    ReplyKeyboardMarkup as RKM,
+    KeyboardButton as KB
+)
 
-# ══════ USER ══════════════════════════════
+# ═══════════════════════════════
+# USER
+# ═══════════════════════════════
+
 def user_kb():
     return RKM([
         [KB("🎬 Kino qidirish")],
@@ -10,46 +17,56 @@ def user_kb():
 
 def sub_kb(channels):
     btns = [[Btn(f"📢 {c['title']}", url=c["link"])] for c in channels]
-    btns.append([Btn("✅ Obuna bo'ldim — Tekshirish", callback_data="chk_sub")])
+    btns.append([Btn("✅ Obuna boldim — Tekshirish", callback_data="chk_sub")])
     return IKM(btns)
 
 def buy_kb():
     return IKM([
-        [Btn("💳 UzCard",          callback_data="pay_uzcard"),
-         Btn("💳 Humo",            callback_data="pay_humo")],
+        [Btn("💳 UzCard", callback_data="pay_uzcard"),
+         Btn("💳 Humo",   callback_data="pay_humo")],
         [Btn("💳 Visa/MasterCard", callback_data="pay_visa")],
-        [Btn("❌ Bekor",            callback_data="x")],
+        [Btn("❌ Bekor", callback_data="x")],
     ])
 
-# ══════ ADMIN ═════════════════════════════
+# ═══════════════════════════════
+# ADMIN
+# ═══════════════════════════════
+
 def admin_kb():
     return RKM([
-        [KB("📊 Statistika"),      KB("📨 Xabar yuborish")],
-        [KB("🎬 Kinolar"),         KB("🔒 Kanallar")],
-        [KB("👮 Adminlar"),        KB("⚙️ Sozlamalar")],
+        [KB("📊 Statistika"),     KB("📨 Xabar yuborish")],
+        [KB("🎬 Kinolar"),        KB("🔒 Kanallar")],
+        [KB("👮 Adminlar"),       KB("⚙️ Sozlamalar")],
         [KB("◀️ Orqaga")],
     ], resize_keyboard=True)
 
 def movies_kb():
     return IKM([
-        [Btn("🎬 Kino yuklash",     callback_data="mv_add")],
-        [Btn("📝 Kino tahrirlash",  callback_data="mv_edit"),
-         Btn("🗑 Kino o'chirish",   callback_data="mv_del")],
-        [Btn("📋 Kinolar ro'yxati", callback_data="mv_list")],
+        [Btn("🎬 Kino yuklash",    callback_data="mv_add")],
+        [Btn("📝 Kino tahrirlash", callback_data="mv_edit"),
+         Btn("🗑 Kino ochirish",   callback_data="mv_del")],
+        [Btn("📋 Kinolar royxati", callback_data="mv_list")],
     ])
 
 def channels_kb():
     return IKM([
-        [Btn("➕ Kanal qo'shish",    callback_data="ch_add")],
-        [Btn("📋 Ro'yxatni ko'rish", callback_data="ch_list")],
-        [Btn("🗑 Kanalni o'chirish",  callback_data="ch_del")],
+        [Btn("➕ Kanal qoshish",    callback_data="ch_add")],
+        [Btn("📋 Royxatni korish",  callback_data="ch_list")],
+        [Btn("🗑 Kanalni ochirish", callback_data="ch_del")],
     ])
+
+def channel_list_kb(channels):
+    btns = []
+    for c in channels:
+        btns.append([Btn(f"🗑 {c['title']}", callback_data=f"dch_{c['id']}")])
+    btns.append([Btn("🔙 Orqaga", callback_data="ch_back")])
+    return IKM(btns)
 
 def admins_kb():
     return IKM([
-        [Btn("➕ Admin qo'shish",    callback_data="adm_add")],
-        [Btn("➖ Adminni o'chirish",  callback_data="adm_del")],
-        [Btn("📋 Adminlar ro'yxati", callback_data="adm_list")],
+        [Btn("➕ Admin qoshish",    callback_data="adm_add")],
+        [Btn("➖ Adminni ochirish", callback_data="adm_del")],
+        [Btn("📋 Adminlar royxati", callback_data="adm_list")],
     ])
 
 def settings_kb():
