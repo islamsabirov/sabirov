@@ -5,10 +5,7 @@ from telegram import (
     KeyboardButton as KB
 )
 
-# ═══════════════════════════════
-# USER
-# ═══════════════════════════════
-
+# ═══════ USER ═══════════════════════════════════
 def user_kb():
     return RKM([
         [KB("🎬 Kino qidirish")],
@@ -16,7 +13,10 @@ def user_kb():
     ], resize_keyboard=True)
 
 def sub_kb(channels):
-    btns = [[Btn(f"📢 {c['title']}", url=c["link"])] for c in channels]
+    """Obuna bo'lmagan kanallar uchun tugmalar"""
+    btns = []
+    for c in channels:
+        btns.append([Btn(f"📢 {c['title']}", url=c["link"])])
     btns.append([Btn("✅ Obuna boldim — Tekshirish", callback_data="chk_sub")])
     return IKM(btns)
 
@@ -28,10 +28,7 @@ def buy_kb():
         [Btn("❌ Bekor", callback_data="x")],
     ])
 
-# ═══════════════════════════════
-# ADMIN
-# ═══════════════════════════════
-
+# ═══════ ADMIN ══════════════════════════════════
 def admin_kb():
     return RKM([
         [KB("📊 Statistika"),     KB("📨 Xabar yuborish")],
@@ -48,20 +45,52 @@ def movies_kb():
         [Btn("📋 Kinolar royxati", callback_data="mv_list")],
     ])
 
-def channels_kb():
+# ═══════ KANALLAR ═══════════════════════════════
+def channels_main_kb():
+    """Kanallar asosiy menyusi"""
     return IKM([
         [Btn("➕ Kanal qoshish",    callback_data="ch_add")],
         [Btn("📋 Royxatni korish",  callback_data="ch_list")],
-        [Btn("🗑 Kanalni ochirish", callback_data="ch_del")],
     ])
 
-def channel_list_kb(channels):
-    btns = []
-    for c in channels:
-        btns.append([Btn(f"🗑 {c['title']}", callback_data=f"dch_{c['id']}")])
-    btns.append([Btn("🔙 Orqaga", callback_data="ch_back")])
+def channel_type_kb():
+    """Kanal turi tanlash"""
+    return IKM([
+        [Btn("📢 Ommaviy / Shaxsiy (Kanal/Guruh)", callback_data="cht_public")],
+        [Btn("🔒 Shaxsiy / Sorovli havola",         callback_data="cht_private")],
+        [Btn("🌐 Oddiy havola",                      callback_data="cht_link")],
+        [Btn("◀️ Orqaga",                            callback_data="ch_back")],
+    ])
+
+def channel_add_method_kb(ch_type):
+    """Kanal qoshish usuli tanlash"""
+    btns = [
+        [Btn("1️⃣ ID orqali ulash",    callback_data=f"chm_id_{ch_type}")],
+        [Btn("2️⃣ Havola orqali ulash", callback_data=f"chm_link_{ch_type}")],
+    ]
+    if ch_type in ("public", "private"):
+        btns.append([Btn("3️⃣ Postni ulash orqali", callback_data=f"chm_post_{ch_type}")])
+    btns.append([Btn("◀️ Orqaga", callback_data="ch_add")])
     return IKM(btns)
 
+def channel_list_kb(channels):
+    """Kanallar royxati — ustiga bosib korish"""
+    btns = []
+    type_icons = {"public": "📢", "private": "🔒", "link": "🌐"}
+    for c in channels:
+        icon = type_icons.get(c["ch_type"], "📢")
+        btns.append([Btn(f"{icon} {c['title']}", callback_data=f"chview_{c['id']}")])
+    btns.append([Btn("◀️ Orqaga", callback_data="ch_back")])
+    return IKM(btns)
+
+def channel_view_kb(ch_id):
+    """Kanal malumoti korishda o'chirish tugmasi"""
+    return IKM([
+        [Btn("🗑 O'chirish", callback_data=f"dch_{ch_id}")],
+        [Btn("◀️ Orqaga",   callback_data="ch_list")],
+    ])
+
+# ═══════ ADMINLAR ════════════════════════════════
 def admins_kb():
     return IKM([
         [Btn("➕ Admin qoshish",    callback_data="adm_add")],
@@ -69,6 +98,7 @@ def admins_kb():
         [Btn("📋 Adminlar royxati", callback_data="adm_list")],
     ])
 
+# ═══════ SOZLAMALAR ══════════════════════════════
 def settings_kb():
     return IKM([
         [Btn("💳 Karta sozlamalari",  callback_data="st_cards")],
@@ -83,7 +113,7 @@ def cards_kb():
         [Btn("💳 Humo raqami",   callback_data="sc_humo")],
         [Btn("💳 Visa raqami",   callback_data="sc_visa")],
         [Btn("👤 Karta egasi",   callback_data="sc_owner")],
-        [Btn("🔙 Orqaga",        callback_data="st_back")],
+        [Btn("◀️ Orqaga",        callback_data="st_back")],
     ])
 
 def broadcast_kb():
@@ -100,4 +130,4 @@ def pay_confirm_kb(pay_id):
     ]])
 
 def back_kb(cb="x"):
-    return IKM([[Btn("🔙 Orqaga", callback_data=cb)]])
+    return IKM([[Btn("◀️ Orqaga", callback_data=cb)]])
