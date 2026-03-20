@@ -1,10 +1,7 @@
 """
 KINO BOT v3.0 — main.py
-Professional kino bot — barcha funksiyalar
 """
-import asyncio
-import logging
-import os
+import asyncio, logging, os
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
@@ -21,27 +18,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 H = ParseMode.HTML
 END = ConversationHandler.END
 
-# ═══════════════════════════════
+# ═══════════════════════════════════════════════
 # STATES
-# ═══════════════════════════════
+# ═══════════════════════════════════════════════
 (
     S_PAY,
     S_MV_CODE, S_MV_MSGID, S_MV_TITLE,
     S_ED_OLD, S_ED_CODE, S_ED_MSGID, S_ED_TITLE,
     S_DEL,
-    S_CH_ID, S_CH_TITLE, S_CH_LINK,
+    S_CH_INPUT,
     S_ADM_ADD, S_ADM_DEL,
     S_BC_TEXT, S_BC_FWD,
     S_ST_CARD, S_ST_PRICE, S_ST_MOVCH, S_ST_WELCOME,
-) = range(20)
+) = range(18)
 
-# ═══════════════════════════════
+# ═══════════════════════════════════════════════
 # YORDAMCHILAR
-# ═══════════════════════════════
-
+# ═══════════════════════════════════════════════
 async def check_subs(bot, uid):
+    """Telegram obuna tekshirish (faqat public/private kanallar)"""
     result = []
-    for ch in db.get_channels():
+    for ch in db.get_checkable_channels():
         try:
             m = await bot.get_chat_member(ch["channel_id"], uid)
             if m.status in ["left", "kicked"]:
@@ -49,6 +46,15 @@ async def check_subs(bot, uid):
         except Exception:
             pass
     return result
+
+def get_sub_buttons(channels):
+    """Barcha kanallar uchun tugmalar (link turi ham)"""
+    all_chs = db.get_channels()
+    btns = []
+    for c in all_chs:
+        btns.append([InlineKeyboardButton(f"📢 {c['title']}", url=c["link"])])
+    btns.append([InlineKeyboardButton("✅ Obuna boldim — Tekshirish", callback_data="chk_sub")])
+    return InlineKeyboardMarkup(btns)
 
 async def send_to_admins(ctx, text=None, photo=None, caption=None, markup=None):
     for aid in db.all_admin_ids():
@@ -68,8 +74,8 @@ def get_movie_ch():
 async def cancel(update: Update, ctx):
     ctx.user_data.clear()
     if update.message:
-        await update.message.reply_text("❌ Bekor qilindi.",
-            reply_markup=kb.admin_kb() if db.is_admin(update.effective_user.id) else kb.user_kb())
+        mkb = kb.admin_kb() if db.is_admin(update.effective_user.id) else kb.user_kb()
+        await update.message.reply_text("❌ Bekor qilindi.", reply_markup=mkb)
     return END
 
 async def cb_cancel(update: Update, ctx):
@@ -78,29 +84,30 @@ async def cb_cancel(update: Update, ctx):
     ctx.user_data.clear()
     await q.edit_message_text("❌ Bekor qilindi.")
 
-# ═══════════════════════════════
+# ═══════════════════════════════════════════════
 # START
-# ═══════════════════════════════
-
+# ═══════════════════════════════════════════════
 async def cmd_start(update: Update, ctx):
     u = update.effective_user
     db.add_user(u.id, u.first_name, u.username or "")
     unsubbed = await check_subs(ctx.bot, u.id)
     if unsubbed:
-        await update.message.reply_text(
-            "📢 <b>Botdan foydalanish uchun quyidagi kanallarga obuna boling:</b>\n\n"
-            "Obuna bolgach <b>Tekshirish</b> tugmasini bosing.",
-            parse_mode=H, reply_markup=kb.sub_kb(unsubbed)
-        )
-        return
+        all_chs = db.get_channels()
+        if all_chs:
+            await update.message.reply_text(
+                "📢 <b>Botdan foydalanish uchun quyidagi kanallarga obuna boling:</b>\n\n"
+                "Obuna bolgach Tekshirish tugmasini bosing.",
+                parse_mode=H,
+                reply_markup=get_sub_buttons(unsubbed)
+            )
+            return
     if db.is_admin(u.id):
         await update.message.reply_text(
-            f"👑 <b>Salom, {u.first_name}!</b>\n\n"
-            f"Admin paneliga xush kelibsiz. Quyidagi menyudan foydalaning 👇",
+            f"👑 <b>Salom, {u.first_name}!</b>\n\nAdmin paneliga xush kelibsiz.",
             parse_mode=H, reply_markup=kb.admin_kb()
         )
     else:
-        welcome = db.gs("welcome_text") or "Kino kodini yuboring 🎬"
+        welcome = db.gs("welcome_text") or "Kino kodini yuboring"
         await update.message.reply_text(
             f"🎬 <b>Salom, {u.first_name}!</b>\n\n{welcome}",
             parse_mode=H, reply_markup=kb.user_kb()
@@ -115,16 +122,13 @@ async def cb_chk_sub(update: Update, ctx):
                        show_alert=True)
         return
     u = q.from_user
-    await q.edit_message_text(
-        "Obuna tasdiqlandi!\n\n🎬 Kino kodini yuboring:", parse_mode=H
-    )
+    await q.edit_message_text("Obuna tasdiqlandi! Kino kodini yuboring.")
     mkb = kb.admin_kb() if db.is_admin(u.id) else kb.user_kb()
     await ctx.bot.send_message(u.id, "👇", reply_markup=mkb)
 
-# ═══════════════════════════════
-# USER — KINO QIDIRISH
-# ═══════════════════════════════
-
+# ═══════════════════════════════════════════════
+# USER
+# ═══════════════════════════════════════════════
 async def msg_find_movie(update: Update, ctx):
     u = update.effective_user
     code = update.message.text.strip()
@@ -132,36 +136,25 @@ async def msg_find_movie(update: Update, ctx):
     if unsubbed:
         await update.message.reply_text(
             "📢 Avval kanallarga obuna boling!",
-            reply_markup=kb.sub_kb(unsubbed)
+            reply_markup=get_sub_buttons(unsubbed)
         )
         return
     movie = db.get_movie(code)
     if not movie:
         await update.message.reply_text(
-            f"❌ <b>{code}</b> kodli kino topilmadi.\n"
-            f"<i>Kodni togri yozdingizmi?</i>",
+            f"❌ <b>{code}</b> kodli kino topilmadi.",
             parse_mode=H
         )
         return
     ch = get_movie_ch()
     if not ch:
-        await update.message.reply_text(
-            "Kino kanal hali sozlanmagan. Admin bilan boglanin."
-        )
+        await update.message.reply_text("Kino kanal sozlanmagan. Admin bilan boglanin.")
         return
     try:
-        await ctx.bot.copy_message(
-            chat_id=u.id, from_chat_id=ch, message_id=int(movie["msg_id"])
-        )
+        await ctx.bot.copy_message(chat_id=u.id, from_chat_id=ch, message_id=int(movie["msg_id"]))
     except TelegramError as e:
         logging.error(f"Copy xato: {e}")
-        await update.message.reply_text(
-            "Kinoni yuborishda xatolik yuz berdi. Admin bilan boglanin."
-        )
-
-# ═══════════════════════════════
-# USER — PROFIL
-# ═══════════════════════════════
+        await update.message.reply_text("Kinoni yuborishda xatolik. Admin bilan boglanin.")
 
 async def msg_profile(update: Update, ctx):
     u = update.effective_user
@@ -178,7 +171,6 @@ async def msg_profile(update: Update, ctx):
         f"ID: <code>{u.id}</code>\n"
         f"Ism: {u.first_name}\n"
         f"Obuna: {sub_text}\n\n"
-        f"━━━━━━━━━━━━━━━\n"
         f"{days} kunlik obuna: <b>{int(price):,} som</b>",
         parse_mode=H, reply_markup=markup
     )
@@ -186,26 +178,22 @@ async def msg_profile(update: Update, ctx):
 async def msg_help(update: Update, ctx):
     await update.message.reply_text(
         "ℹ️ <b>Yordam</b>\n\n"
-        "🎬 Kino kodini yuboring — bot kinoni yuboradi.\n\n"
-        "Obuna sotib olish: Profilim tugmasi\n\n"
+        "Kino kodini yuboring — bot kinoni yuboradi.\n\n"
+        "Obuna: Profilim tugmasi\n\n"
         "Muammo bolsa admin bilan boglanin.",
         parse_mode=H
     )
 
-# ═══════════════════════════════
+# ═══════════════════════════════════════════════
 # TOLOV
-# ═══════════════════════════════
-
+# ═══════════════════════════════════════════════
 async def cb_buy_sub(update: Update, ctx):
     q = update.callback_query
     await q.answer()
     price = db.gs("sub_price") or "15000"
     days = db.gs("sub_days") or "30"
     await q.edit_message_text(
-        f"💳 <b>Obuna sotib olish</b>\n\n"
-        f"Muddat: <b>{days} kun</b>\n"
-        f"Narx: <b>{int(price):,} som</b>\n\n"
-        f"Tolov usulini tanlang:",
+        f"💳 <b>Obuna sotib olish</b>\n\nMuddat: <b>{days} kun</b>\nNarx: <b>{int(price):,} som</b>\n\nTolov usulini tanlang:",
         parse_mode=H, reply_markup=kb.buy_kb()
     )
 
@@ -214,17 +202,15 @@ async def cb_pay_card(update: Update, ctx):
     await q.answer()
     card_type = q.data.replace("pay_", "")
     price = db.gs("sub_price") or "15000"
-    card = db.gs(f"card_{card_type}") or "Sozlanmagan"
+    card = db.gs("card_" + card_type) or "Sozlanmagan"
     owner = db.gs("card_owner") or "Admin"
     names = {"uzcard": "UzCard", "humo": "Humo", "visa": "Visa/MasterCard"}
     ctx.user_data["pay_card"] = card_type
     await q.edit_message_text(
         f"💳 <b>{names.get(card_type, '')} orqali tolov</b>\n\n"
         f"Tolov summasi: <b>{int(price):,} som</b>\n\n"
-        f"Karta raqami:\n<code>{card}</code>\n"
-        f"Egasi: <b>{owner}</b>\n\n"
-        f"1. Kartaga pul otkazing\n"
-        f"2. Chek rasmini yuboring",
+        f"Karta: <code>{card}</code>\nEgasi: <b>{owner}</b>\n\n"
+        f"1. Kartaga pul otkazing\n2. Chek rasmini yuboring",
         parse_mode=H, reply_markup=kb.back_kb("x")
     )
     return S_PAY
@@ -232,170 +218,114 @@ async def cb_pay_card(update: Update, ctx):
 async def rcv_screenshot(update: Update, ctx):
     u = update.effective_user
     if not update.message.photo:
-        await update.message.reply_text("Iltimos, chek rasmini yuboring!")
+        await update.message.reply_text("Iltimos chek rasmini yuboring!")
         return S_PAY
     card_type = ctx.user_data.get("pay_card", "uzcard")
     price = int(db.gs("sub_price") or "15000")
     fid = update.message.photo[-1].file_id
     pay_id = db.add_payment(u.id, price, card_type, fid)
     if not pay_id:
-        await update.message.reply_text(
-            "Sizda kutilayotgan tolov mavjud. Admin tasdiqlashini kuting.",
-            reply_markup=kb.user_kb()
-        )
+        await update.message.reply_text("Kutilayotgan tolov mavjud. Admin tasdiqlashini kuting.")
         return END
-    await update.message.reply_text(
-        "Tolovingiz qabul qilindi! Admin tez orada korib chiqadi.",
-        reply_markup=kb.user_kb()
-    )
+    await update.message.reply_text("Tolovingiz qabul qilindi! Admin tez orada koradi.")
     names = {"uzcard": "UzCard", "humo": "Humo", "visa": "Visa/MasterCard"}
     uname = u.username if u.username else "yoq"
     caption = (
-        f"💳 <b>Yangi tolov sorovil</b>\n\n"
+        f"💳 <b>Yangi tolov</b>\n\n"
         f"Foydalanuvchi: <a href='tg://user?id={u.id}'>{u.first_name}</a>\n"
-        f"ID: <code>{u.id}</code>\n"
-        f"Username: @{uname}\n"
-        f"Summa: <b>{price:,} som</b>\n"
-        f"Karta: {names.get(card_type, card_type)}\n"
-        f"Tolov raqami: {pay_id}"
+        f"ID: <code>{u.id}</code>\nUsername: @{uname}\n"
+        f"Summa: <b>{price:,} som</b>\nKarta: {names.get(card_type, card_type)}\n"
+        f"Tolov N: {pay_id}"
     )
-    await send_to_admins(ctx, photo=fid, caption=caption,
-                         markup=kb.pay_confirm_kb(pay_id))
+    await send_to_admins(ctx, photo=fid, caption=caption, markup=kb.pay_confirm_kb(pay_id))
     ctx.user_data.clear()
     return END
 
 async def cb_pay_ok(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    if not db.is_admin(q.from_user.id):
-        return
+    if not db.is_admin(q.from_user.id): return
     pay_id = int(q.data.replace("pok_", ""))
     pay = db.get_payment(pay_id)
     if not pay or pay["status"] != "pending":
-        await q.answer("Bu tolov allaqachon hal qilingan!", show_alert=True)
-        return
+        await q.answer("Allaqachon hal qilingan!", show_alert=True); return
     days = int(db.gs("sub_days") or "30")
     db.resolve_payment(pay_id, "approved")
     db.give_sub(pay["user_id"], days)
-    await q.edit_message_caption(
-        f"TASDIQLANDI\n\n{q.message.caption}", parse_mode=H
-    )
+    await q.edit_message_caption(f"TASDIQLANDI\n\n{q.message.caption}", parse_mode=H)
     try:
-        await ctx.bot.send_message(
-            pay["user_id"],
-            f"🎉 <b>Tolovingiz tasdiqlandi!</b>\n\n"
-            f"{days} kunlik obuna faollashtirildi!\n"
-            f"Endi kino kodini yuboring!",
-            parse_mode=H, reply_markup=kb.user_kb()
-        )
-    except Exception:
-        pass
+        await ctx.bot.send_message(pay["user_id"],
+            f"Tolovingiz tasdiqlandi! {days} kunlik obuna faollashtirildi! Kino kodini yuboring!",
+            reply_markup=kb.user_kb())
+    except Exception: pass
 
 async def cb_pay_no(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    if not db.is_admin(q.from_user.id):
-        return
+    if not db.is_admin(q.from_user.id): return
     pay_id = int(q.data.replace("pno_", ""))
     pay = db.get_payment(pay_id)
     if not pay or pay["status"] != "pending":
-        await q.answer("Bu tolov allaqachon hal qilingan!", show_alert=True)
-        return
+        await q.answer("Allaqachon hal qilingan!", show_alert=True); return
     db.resolve_payment(pay_id, "rejected")
-    await q.edit_message_caption(
-        f"BEKOR QILINDI\n\n{q.message.caption}", parse_mode=H
-    )
+    await q.edit_message_caption(f"BEKOR QILINDI\n\n{q.message.caption}", parse_mode=H)
     try:
-        await ctx.bot.send_message(
-            pay["user_id"],
-            "Tolovingiz tasdiqlanmadi.\nNototgri chek yoki summa.\nQayta urinib koring.",
-            reply_markup=kb.user_kb()
-        )
-    except Exception:
-        pass
+        await ctx.bot.send_message(pay["user_id"],
+            "Tolovingiz tasdiqlanmadi. Nototgri chek yoki summa. Qayta urinib koring.",
+            reply_markup=kb.user_kb())
+    except Exception: pass
 
-# ═══════════════════════════════
-# ADMIN — STATISTIKA
-# ═══════════════════════════════
-
+# ═══════════════════════════════════════════════
+# STATISTIKA
+# ═══════════════════════════════════════════════
 async def msg_stats(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id):
-        return
+    if not db.is_admin(update.effective_user.id): return
     s = db.user_stats()
     mc = db.movie_count()
     await update.message.reply_text(
         f"📊 <b>Bot statistikasi</b>\n\n"
-        f"Yangi foydalanuvchilar:\n"
-        f"• Bugun: +{s['today']} ta\n"
-        f"• 7 kun: +{s['week']} ta\n"
-        f"• 30 kun: +{s['month']} ta\n\n"
-        f"Faollik:\n"
-        f"• 24 soat: {s['act24']} ta\n"
-        f"• 7 kun: {s['act7']} ta\n"
-        f"• 30 kun: {s['act30']} ta\n\n"
-        f"🎬 Kinolar: <b>{mc} ta</b>\n"
-        f"👤 Jami: <b>{s['total']} ta</b>",
+        f"Yangi foydalanuvchilar:\n• Bugun: +{s['today']}\n• 7 kun: +{s['week']}\n• 30 kun: +{s['month']}\n\n"
+        f"Faollik:\n• 24 soat: {s['act24']}\n• 7 kun: {s['act7']}\n• 30 kun: {s['act30']}\n\n"
+        f"Kinolar: <b>{mc} ta</b>\nJami: <b>{s['total']} ta</b>",
         parse_mode=H
     )
 
-# ═══════════════════════════════
-# ADMIN — KINOLAR
-# ═══════════════════════════════
-
+# ═══════════════════════════════════════════════
+# KINOLAR
+# ═══════════════════════════════════════════════
 async def msg_movies(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id):
-        return
+    if not db.is_admin(update.effective_user.id): return
     await update.message.reply_text(
         "🎬 <b>Kinolar bomidasiz:</b>\n\nQuyidagi amallardan birini tanlang:",
         parse_mode=H, reply_markup=kb.movies_kb()
     )
 
 async def cb_mv_add(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
-    await q.edit_message_text(
-        "🎬 <b>Kinolar bomidasiz:</b>\n\nQuyidagi amallardan birini tanlang:",
-        parse_mode=H, reply_markup=kb.movies_kb()
-    )
-    await ctx.bot.send_message(
-        q.from_user.id,
-        "🎬 <b>Kino qoshish</b>\n\nKino kodini kiriting:\n"
-        "<i>Masalan: 101, 202, 350</i>\n\nBekor: /cancel",
-        parse_mode=H
-    )
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("🎬 <b>Kinolar bomidasiz:</b>\n\nQuyidagi amallardan birini tanlang:",
+                               parse_mode=H, reply_markup=kb.movies_kb())
+    await ctx.bot.send_message(q.from_user.id,
+        "🎬 <b>Kino qoshish</b>\n\nKino kodini kiriting:\n<i>Masalan: 101, 202</i>\n\nBekor: /cancel",
+        parse_mode=H)
     return S_MV_CODE
 
 async def st_mv_code(update: Update, ctx):
     code = update.message.text.strip()
     existing = db.get_movie(code)
-    if existing:
-        title = existing["title"] or "—"
-        await update.message.reply_text(
-            f"{code} kodi mavjud! Sarlavha: {title}\n\n"
-            f"Davom etsangiz yangilanadi.\n\nMessage ID yuboring:",
-        )
-    else:
-        await update.message.reply_text(
-            f"Kod: <b>{code}</b>\n\n"
-            f"Kino kanal Message ID sini yuboring:\n\n"
-            f"Qanday olish: kanalda postga ong klik - Copy Link\n"
-            f"Link oxiridagi raqam = Message ID\n"
-            f"Masalan: .../45 - ID = 45",
-            parse_mode=H
-        )
+    msg = f"Kod: <b>{code}</b> — mavjud ({existing['title'] or '—'}). Yangilanadi.\n\n" if existing else f"Kod: <b>{code}</b>\n\n"
+    await update.message.reply_text(
+        msg + "Message ID yuboring:\n<i>Kanalda postga ong klik - Copy Link - oxiridagi raqam</i>",
+        parse_mode=H)
     ctx.user_data["mv_code"] = code
     return S_MV_MSGID
 
 async def st_mv_msgid(update: Update, ctx):
     t = update.message.text.strip()
     if not t.isdigit():
-        await update.message.reply_text("Faqat raqam yuboring! Qayta:")
+        await update.message.reply_text("Faqat raqam! Qayta:")
         return S_MV_MSGID
     ctx.user_data["mv_msgid"] = t
-    await update.message.reply_text(
-        "Kino sarlavhasini yuboring:\n<i>Otkazish uchun: - yuboring</i>",
-        parse_mode=H
-    )
+    await update.message.reply_text("Sarlavha yuboring:\n<i>Otkazish: - yuboring</i>", parse_mode=H)
     return S_MV_TITLE
 
 async def st_mv_title(update: Update, ctx):
@@ -404,364 +334,383 @@ async def st_mv_title(update: Update, ctx):
     msgid = ctx.user_data["mv_msgid"]
     db.save_movie(code, msgid, title)
     ch = get_movie_ch()
-    test_text = ""
+    test = ""
     if ch:
         try:
-            await ctx.bot.copy_message(
-                chat_id=update.effective_user.id,
-                from_chat_id=ch,
-                message_id=int(msgid)
-            )
-            test_text = "\n\nTest korinishi yuqorida:"
+            await ctx.bot.copy_message(chat_id=update.effective_user.id, from_chat_id=ch, message_id=int(msgid))
+            test = "\n\nTest korinishi yuqorida:"
         except Exception as e:
-            test_text = f"\n\nTest xato: {e}"
+            test = f"\n\nTest xato: {e}"
     await update.message.reply_text(
-        f"Kino qoshildi!\n\n"
-        f"Kod: <code>{code}</code>\n"
-        f"Message ID: <code>{msgid}</code>\n"
-        f"Sarlavha: {title or '—'}{test_text}",
-        parse_mode=H, reply_markup=kb.movies_kb()
-    )
+        f"Kino qoshildi!\nKod: <code>{code}</code>\nID: <code>{msgid}</code>\nSarlavha: {title or '—'}{test}",
+        parse_mode=H, reply_markup=kb.movies_kb())
     ctx.user_data.clear()
     return END
 
 async def cb_mv_edit(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
-    await q.edit_message_text(
-        "🎬 <b>Kinolar bomidasiz:</b>\n\nQuyidagi amallardan birini tanlang:",
-        parse_mode=H, reply_markup=kb.movies_kb()
-    )
-    await ctx.bot.send_message(
-        q.from_user.id,
-        "Tahrirlash uchun kino kodini kiriting:\n\nBekor: /cancel"
-    )
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("🎬 <b>Kinolar bomidasiz:</b>\n\nQuyidagi amallardan birini tanlang:",
+                               parse_mode=H, reply_markup=kb.movies_kb())
+    await ctx.bot.send_message(q.from_user.id, "Tahrirlash uchun kino kodini kiriting:\n\nBekor: /cancel")
     return S_ED_OLD
 
 async def st_ed_old(update: Update, ctx):
     code = update.message.text.strip()
     m = db.get_movie(code)
     if not m:
-        await update.message.reply_text(f"{code} topilmadi! Qayta:")
-        return S_ED_OLD
+        await update.message.reply_text(f"{code} topilmadi! Qayta:"); return S_ED_OLD
     ctx.user_data["ed_old"] = code
     await update.message.reply_text(
-        f"Topildi: <b>{m['title'] or code}</b>\n"
-        f"Hozirgi ID: <code>{m['msg_id']}</code>\n\nYangi kodni yuboring:",
-        parse_mode=H
-    )
+        f"Topildi: <b>{m['title'] or code}</b>\nID: <code>{m['msg_id']}</code>\n\nYangi kodni yuboring:",
+        parse_mode=H)
     return S_ED_CODE
 
 async def st_ed_code(update: Update, ctx):
     ctx.user_data["ed_code"] = update.message.text.strip()
-    await update.message.reply_text("Yangi Message ID yuboring:")
+    await update.message.reply_text("Yangi Message ID:")
     return S_ED_MSGID
 
 async def st_ed_msgid(update: Update, ctx):
     t = update.message.text.strip()
     if not t.isdigit():
-        await update.message.reply_text("Faqat raqam!")
-        return S_ED_MSGID
+        await update.message.reply_text("Faqat raqam!"); return S_ED_MSGID
     ctx.user_data["ed_msgid"] = t
-    await update.message.reply_text("Yangi sarlavha yuboring (ozgarmasa - yuboring):")
+    await update.message.reply_text("Yangi sarlavha (ozgarmasa -):")
     return S_ED_TITLE
 
 async def st_ed_title(update: Update, ctx):
     title = "" if update.message.text.strip() == "-" else update.message.text.strip()
-    db.update_movie(
-        ctx.user_data["ed_old"],
-        ctx.user_data["ed_code"],
-        ctx.user_data["ed_msgid"],
-        title
-    )
+    db.update_movie(ctx.user_data["ed_old"], ctx.user_data["ed_code"],
+                    ctx.user_data["ed_msgid"], title)
     await update.message.reply_text("Kino yangilandi!", reply_markup=kb.movies_kb())
-    ctx.user_data.clear()
-    return END
+    ctx.user_data.clear(); return END
 
 async def cb_mv_del(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
-    await q.edit_message_text(
-        "🎬 <b>Kinolar bomidasiz:</b>\n\nQuyidagi amallardan birini tanlang:",
-        parse_mode=H, reply_markup=kb.movies_kb()
-    )
-    await ctx.bot.send_message(
-        q.from_user.id,
-        "Ochirmoqchi bolgan kino kodini kiriting:\n\nBekor: /cancel"
-    )
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("🎬 <b>Kinolar bomidasiz:</b>\n\nQuyidagi amallardan birini tanlang:",
+                               parse_mode=H, reply_markup=kb.movies_kb())
+    await ctx.bot.send_message(q.from_user.id, "Ochirmoqchi bolgan kino kodini kiriting:\n\nBekor: /cancel")
     return S_DEL
 
 async def st_del(update: Update, ctx):
     code = update.message.text.strip()
     if db.del_movie(code):
-        await update.message.reply_text(
-            f"<b>{code}</b> ochiriildi!", parse_mode=H,
-            reply_markup=kb.movies_kb()
-        )
+        await update.message.reply_text(f"<b>{code}</b> ochirildi!", parse_mode=H, reply_markup=kb.movies_kb())
     else:
-        await update.message.reply_text(f"{code} topilmadi! Qayta:")
-        return S_DEL
+        await update.message.reply_text(f"{code} topilmadi! Qayta:"); return S_DEL
     return END
 
 async def cb_mv_list(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     movies = db.get_movies(30)
     if not movies:
-        await q.edit_message_text("Kino bazasi bosh.", reply_markup=kb.movies_kb())
-        return
+        await q.edit_message_text("Kino bazasi bosh.", reply_markup=kb.movies_kb()); return
     lines = [f"📋 <b>Kinolar ({len(movies)} ta):</b>\n"]
     for m in movies:
         lines.append(f"<code>{m['code']}</code> | {m['title'] or '—'} | {m['views']} marta")
-    await q.edit_message_text(
-        "\n".join(lines), parse_mode=H,
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("Orqaga", callback_data="mv_back")
-        ]])
-    )
+    await q.edit_message_text("\n".join(lines), parse_mode=H,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Orqaga", callback_data="mv_back")]]))
 
 async def cb_mv_back(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
-    await q.edit_message_text(
-        "🎬 <b>Kinolar bomi</b>", parse_mode=H,
-        reply_markup=kb.movies_kb()
-    )
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("🎬 <b>Kinolar bomi</b>", parse_mode=H, reply_markup=kb.movies_kb())
 
-# ═══════════════════════════════
-# ADMIN — KANALLAR
-# ═══════════════════════════════
-
+# ═══════════════════════════════════════════════
+# KANALLAR — TO'LIQ TIZIM
+# ═══════════════════════════════════════════════
 async def msg_channels(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id):
-        return
+    if not db.is_admin(update.effective_user.id): return
     chs = db.get_channels()
     await update.message.reply_text(
-        f"🔒 <b>Majburiy obuna kanallar</b>\n\nHozirda: <b>{len(chs)} ta</b>",
-        parse_mode=H, reply_markup=kb.channels_kb()
+        f"🔒 <b>Majburiy obuna kanallar</b>\n\nHozirda: <b>{len(chs)} ta</b> kanal\n\nQuyidagi amallardan birini tanlang:",
+        parse_mode=H, reply_markup=kb.channels_main_kb()
     )
 
+# Kanal qo'shish — tur tanlash
 async def cb_ch_add(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     await q.edit_message_text(
-        "Kanal ID yuboring:\n\n"
-        "• Username: <code>@mykanal</code>\n"
-        "• ID: <code>-1001234567890</code>\n\n"
-        "Kanal ID olish: @JsonDumpBot ga forward qiling\n\n"
-        "Botni kanalga admin qilib qoshing!\n\n"
-        "Bekor: /cancel",
-        parse_mode=H
+        "⚙️ <b>Majburiy obuna turini tanlang:</b>\n\n"
+        "Quyida majburiy obunani qoshishning 3 ta turi mavjud:\n\n"
+        "📢 <b>Ommaviy / Shaxsiy (Kanal/Guruh)</b>\n"
+        "Har qanday kanal yoki guruhni (ommaviy yoki shaxsiy) majburiy obunaga ulash.\n\n"
+        "🔒 <b>Shaxsiy / Sorovli havola</b>\n"
+        "Shaxsiy yoki sorovli kanal/guruh havolasi orqali otganlarni kuzatish.\n\n"
+        "🌐 <b>Oddiy havola</b>\n"
+        "Majburiy tekshiruvsiz oddiy havolani korsatish (Instagram, sayt va boshqalar).",
+        parse_mode=H, reply_markup=kb.channel_type_kb()
     )
-    return S_CH_ID
 
-async def st_ch_id(update: Update, ctx):
-    text = update.message.text.strip()
-    if not (text.startswith("@") or text.startswith("-100")):
-        await update.message.reply_text(
-            "Notogri format!\n\n"
-            "Faqat Telegram kanal:\n"
-            "• <code>@mykanal</code>\n"
-            "• <code>-1001234567890</code>\n\n"
-            "Qayta yuboring:",
+# Kanal turi tanlandi
+async def cb_cht(update: Update, ctx):
+    q = update.callback_query; await q.answer()
+    ch_type = q.data.replace("cht_", "")
+    ctx.user_data["ch_type"] = ch_type
+
+    type_names = {
+        "public":  "Ommaviy / Shaxsiy (Kanal/Guruh)",
+        "private": "Shaxsiy / Sorovli havola",
+        "link":    "Oddiy havola"
+    }
+
+    if ch_type == "link":
+        await q.edit_message_text(
+            f"🌐 <b>{type_names[ch_type]} - ulash</b>\n\n"
+            f"Quyida kanal/guruhni ulashning 3 ta oddiy usuli mavjud:\n\n"
+            f"1️⃣ <b>ID orqali ulash</b>\nKanal yoki guruh ID raqamini kiriting.\nID odatda -100... shaklida boladi.\n\n"
+            f"2️⃣ <b>Havola orqali ulash</b>\nKanal/guruh havolasini yuboring.\nMasalan: @kanal_nom yoki https://t.me/kanal\n\n"
+            f"3️⃣ <b>Postni ulash orqali</b>\nKanal yoki guruhdan bitta postni ulashing va shu xabarni botga yuboring.\nBot avtomatik ravishda kanalni taniydi.",
+            parse_mode=H,
+            reply_markup=kb.channel_add_method_kb(ch_type)
+        )
+    else:
+        await q.edit_message_text(
+            f"{'📢' if ch_type == 'public' else '🔒'} <b>{type_names[ch_type]} - ulash</b>\n\n"
+            f"Quyida kanal/guruhni ulashning 3 ta oddiy usuli mavjud:\n\n"
+            f"1️⃣ <b>ID orqali ulash</b>\nKanal yoki guruh ID raqamini kiriting.\nID odatda -100... shaklida boladi.\n\n"
+            f"2️⃣ <b>Havola orqali ulash</b>\nKanal/guruh havolasini yuboring.\nMasalan: @kanal_nom yoki https://t.me/kanal\n\n"
+            f"3️⃣ <b>Postni ulash orqali</b>\nKanal yoki guruhdan bitta postni ulashing va shu xabarni botga yuboring.\nBot avtomatik ravishda kanalni taniydi.",
+            parse_mode=H,
+            reply_markup=kb.channel_add_method_kb(ch_type)
+        )
+
+# Kanal qo'shish usuli tanlandi
+async def cb_chm(update: Update, ctx):
+    q = update.callback_query; await q.answer()
+    data = q.data.replace("chm_", "")
+    parts = data.split("_", 1)
+    method = parts[0]
+    ch_type = parts[1] if len(parts) > 1 else ctx.user_data.get("ch_type", "public")
+    ctx.user_data["ch_type"] = ch_type
+    ctx.user_data["ch_method"] = method
+
+    if method == "id":
+        await q.edit_message_text(
+            "Kanal yoki guruh ID raqamini kiriting:\n\n"
+            "ID odatda -100... shaklida boladi.\n\n"
+            "Bekor: /cancel"
+        )
+    elif method == "link":
+        await q.edit_message_text(
+            "🔗 <b>Havola kiriting:</b>\n\n"
+            "<i>Masalan: https://site.com yoki https://t.me/kanal</i>\n\n"
+            "Iltimos, yuqoridagi kabi togri formatda havolani kiriting.\n\n"
+            "Bekor: /cancel",
             parse_mode=H
         )
-        return S_CH_ID
-    ctx.user_data["ch_id"] = text
+    elif method == "post":
+        await q.edit_message_text(
+            "Kanal yoki guruhdan bitta postni forward qiling:\n\n"
+            "Bot avtomatik ravishda kanal ID sini aniqlaydi.\n\n"
+            "Bekor: /cancel"
+        )
+    return S_CH_INPUT
+
+# Kanal input qabul qilish
+async def st_ch_input(update: Update, ctx):
+    method = ctx.user_data.get("ch_method", "id")
+    ch_type = ctx.user_data.get("ch_type", "public")
+
+    channel_id = ""
+    title = ""
+    link = ""
+
+    if method == "post":
+        # Forward qilingan post orqali kanal aniqlash
+        if update.message.forward_from_chat:
+            chat = update.message.forward_from_chat
+            channel_id = str(chat.id)
+            title = chat.title or "Kanal"
+            if chat.username:
+                link = "https://t.me/" + chat.username
+            else:
+                link = "https://t.me/c/" + str(chat.id).replace("-100", "")
+        else:
+            await update.message.reply_text("Forward qilingan post yuborilmadi! Qayta:")
+            return S_CH_INPUT
+
+    elif method == "link":
+        text = update.message.text.strip()
+        # URL yoki username
+        if text.startswith("http") or text.startswith("@") or text.startswith("t.me"):
+            link = text if text.startswith("http") else "https://t.me/" + text.replace("@", "")
+            if text.startswith("@"):
+                channel_id = text
+            else:
+                channel_id = text
+            title = text
+        else:
+            await update.message.reply_text(
+                "Havola kiritish:\n\nMasalan: https://site.com yoki https://t.me/kanal\n\n"
+                "Qayta kiriting:",
+                parse_mode=H
+            )
+            return S_CH_INPUT
+
+    elif method == "id":
+        text = update.message.text.strip()
+        if text.startswith("@") or text.startswith("-100"):
+            channel_id = text
+            if text.startswith("@"):
+                link = "https://t.me/" + text[1:]
+                title = text
+            else:
+                link = "https://t.me/c/" + text.replace("-100", "")
+                title = text
+        else:
+            await update.message.reply_text(
+                "Nototgri format!\n\n• @kanal\n• -1001234567890\n\nQayta:"
+            )
+            return S_CH_INPUT
+
+    # Sarlavha so'rash
+    ctx.user_data["ch_id"] = channel_id
+    ctx.user_data["ch_link"] = link
+    ctx.user_data["ch_title_input"] = title
+    ctx.user_data["ch_need_title"] = True
     await update.message.reply_text(
-        "Kanal nomini yuboring:\n<i>Bu nom tugmada korinadi</i>",
+        f"Kanal qoshilmoqda...\n\nKanal nomini kiriting:\n<i>Bu nom tugmada korinadi</i>\n\nBekor: /cancel",
         parse_mode=H
     )
-    return S_CH_TITLE
+    return S_CH_INPUT
 
-async def st_ch_title(update: Update, ctx):
-    ctx.user_data["ch_title"] = update.message.text.strip()
-    ch_id = ctx.user_data["ch_id"]
-    if ch_id.startswith("@"):
-        auto_link = "https://t.me/" + ch_id[1:]
-    else:
-        auto_link = ""
-    ctx.user_data["ch_auto_link"] = auto_link
-    hint = "Havola yuboring yoki - yuboring (avtomatik):" if auto_link else "Kanal havolasini yuboring:"
-    await update.message.reply_text(
-        f"{hint}\n<i>Masalan: https://t.me/mykanal</i>",
-        parse_mode=H
-    )
-    return S_CH_LINK
+# Title so'raganda
+async def st_ch_title_final(update: Update, ctx):
+    if not ctx.user_data.get("ch_need_title"):
+        return await st_ch_input(update, ctx)
 
-async def st_ch_link(update: Update, ctx):
-    text = update.message.text.strip()
-    if text == "-":
-        link = ctx.user_data.get("ch_auto_link", "")
-    else:
-        link = text
-    db.add_channel(ctx.user_data["ch_id"], ctx.user_data["ch_title"], link)
+    title = update.message.text.strip()
+    channel_id = ctx.user_data["ch_id"]
+    link = ctx.user_data["ch_link"]
+    ch_type = ctx.user_data["ch_type"]
+
+    db.add_channel(channel_id, title, link, ch_type)
+    chs = db.get_channels()
     await update.message.reply_text(
-        f"Kanal qoshildi!\n\n"
-        f"ID: <code>{ctx.user_data['ch_id']}</code>\n"
-        f"Nom: {ctx.user_data['ch_title']}",
-        parse_mode=H, reply_markup=kb.channels_kb()
+        f"Kanal qoshildi!\n\nNom: {title}\nID: <code>{channel_id}</code>\n\nJami: {len(chs)} ta kanal",
+        parse_mode=H, reply_markup=kb.channels_main_kb()
     )
     ctx.user_data.clear()
     return END
 
+# Kanallar ro'yxati
 async def cb_ch_list(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     chs = db.get_channels()
     if not chs:
-        await q.edit_message_text("Hozircha kanallar yoq.", reply_markup=kb.channels_kb())
+        await q.edit_message_text("Hozircha kanallar yoq.", reply_markup=kb.channels_main_kb())
         return
-    lines = [f"📋 <b>Majburiy kanallar ({len(chs)} ta):</b>\n"]
-    for c in chs:
-        lines.append(f"• {c['title']} | <code>{c['channel_id']}</code>")
     await q.edit_message_text(
-        "\n".join(lines), parse_mode=H,
+        f"📋 <b>Majburiy obuna kanallari royxati:</b>\n\n"
+        f"🔢 Jami: <b>{len(chs)} ta</b>\n\n"
+        f"Kerakli kanal ustiga bosib malumotlarni korishingiz mumkin.",
+        parse_mode=H,
         reply_markup=kb.channel_list_kb(chs)
     )
 
-async def cb_ch_del(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
-    chs = db.get_channels()
-    if not chs:
-        await q.edit_message_text("Ochirish uchun kanallar yoq.", reply_markup=kb.channels_kb())
-        return
-    lines = [f"📋 <b>Majburiy kanallar ({len(chs)} ta):</b>\n"]
-    for c in chs:
-        lines.append(f"• {c['title']} | <code>{c['channel_id']}</code>")
+# Kanal ko'rish
+async def cb_chview(update: Update, ctx):
+    q = update.callback_query; await q.answer()
+    ch_id = int(q.data.replace("chview_", ""))
+    db_chs = db.get_channels()
+    ch = next((c for c in db_chs if c["id"] == ch_id), None)
+    if not ch:
+        await q.answer("Topilmadi!", show_alert=True); return
+    type_names = {"public": "Ommaviy/Shaxsiy", "private": "Shaxsiy/Sorovli", "link": "Oddiy havola"}
     await q.edit_message_text(
-        "\n".join(lines), parse_mode=H,
-        reply_markup=kb.channel_list_kb(chs)
+        f"📋 <b>Kanal malumoti</b>\n\n"
+        f"Nom: <b>{ch['title']}</b>\n"
+        f"Tur: {type_names.get(ch['ch_type'], ch['ch_type'])}\n"
+        f"ID: <code>{ch['channel_id']}</code>\n"
+        f"Havola: {ch['link']}",
+        parse_mode=H,
+        reply_markup=kb.channel_view_kb(ch_id)
     )
 
+# Kanal o'chirish
 async def cb_dch(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
-    if not db.is_admin(q.from_user.id):
-        return
+    q = update.callback_query; await q.answer()
+    if not db.is_admin(q.from_user.id): return
     ch_id = int(q.data.replace("dch_", ""))
     if db.del_channel(ch_id):
         await q.answer("Kanal ochirildi!", show_alert=True)
         chs = db.get_channels()
         if not chs:
-            await q.edit_message_text(
-                "Kanallar yoq.", reply_markup=kb.channels_kb()
-            )
+            await q.edit_message_text("Kanallar yoq.", reply_markup=kb.channels_main_kb())
             return
-        lines = [f"📋 <b>Majburiy kanallar ({len(chs)} ta):</b>\n"]
-        for c in chs:
-            lines.append(f"• {c['title']} | <code>{c['channel_id']}</code>")
         await q.edit_message_text(
-            "\n".join(lines), parse_mode=H,
-            reply_markup=kb.channel_list_kb(chs)
+            f"📋 <b>Majburiy obuna kanallari:</b>\n\nJami: <b>{len(chs)} ta</b>",
+            parse_mode=H, reply_markup=kb.channel_list_kb(chs)
         )
     else:
         await q.answer("Topilmadi.", show_alert=True)
 
 async def cb_ch_back(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     chs = db.get_channels()
     await q.edit_message_text(
         f"🔒 <b>Majburiy obuna kanallar</b>\n\nHozirda: <b>{len(chs)} ta</b>",
-        parse_mode=H, reply_markup=kb.channels_kb()
+        parse_mode=H, reply_markup=kb.channels_main_kb()
     )
 
-async def cmd_delch(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id):
-        return
-    if not ctx.args or not ctx.args[0].isdigit():
-        await update.message.reply_text("Format: /delch 1")
-        return
-    if db.del_channel(int(ctx.args[0])):
-        await update.message.reply_text("Kanal ochirildi!")
-    else:
-        await update.message.reply_text("Topilmadi.")
-
-# ═══════════════════════════════
-# ADMIN — ADMINLAR
-# ═══════════════════════════════
-
+# ═══════════════════════════════════════════════
+# ADMINLAR
+# ═══════════════════════════════════════════════
 async def msg_admins(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id):
-        return
+    if not db.is_admin(update.effective_user.id): return
     await update.message.reply_text(
-        "👮 <b>Adminlar bomi</b>\n\nYangi admin qoshish yoki ochirish mumkin.",
-        parse_mode=H, reply_markup=kb.admins_kb()
+        "👮 <b>Adminlar bomi</b>", parse_mode=H, reply_markup=kb.admins_kb()
     )
 
 async def cb_adm_add(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
-    await q.edit_message_text(
-        "Yangi admin Telegram ID sini yuboring:\n\n"
-        "ID olish: @userinfobot ga /start\n\nBekor: /cancel"
-    )
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("Yangi admin Telegram ID sini yuboring:\n\nID olish: @userinfobot ga /start\n\nBekor: /cancel")
     return S_ADM_ADD
 
 async def st_adm_add(update: Update, ctx):
     t = update.message.text.strip()
     if not t.isdigit():
-        await update.message.reply_text("Faqat raqam! Qayta:")
-        return S_ADM_ADD
+        await update.message.reply_text("Faqat raqam! Qayta:"); return S_ADM_ADD
     uid = int(t)
     if uid in ADMIN_IDS:
-        await update.message.reply_text("Bu asosiy admin!")
-        return END
+        await update.message.reply_text("Bu asosiy admin!"); return END
     db.add_admin(uid, f"Admin {uid}")
-    await update.message.reply_text(
-        f"<code>{uid}</code> admin qoshildi!",
-        parse_mode=H, reply_markup=kb.admins_kb()
-    )
-    try:
-        await ctx.bot.send_message(uid, "Siz admin qilib tayinlandingiz!")
-    except Exception:
-        pass
+    await update.message.reply_text(f"<code>{uid}</code> admin qoshildi!", parse_mode=H, reply_markup=kb.admins_kb())
+    try: await ctx.bot.send_message(uid, "Siz admin qilib tayinlandingiz!")
+    except Exception: pass
     return END
 
 async def cb_adm_del(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
-    await q.edit_message_text(
-        "Admin Telegram ID sini yuboring:\n\nBekor: /cancel"
-    )
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("Admin Telegram ID sini yuboring:\n\nBekor: /cancel")
     return S_ADM_DEL
 
 async def st_adm_del(update: Update, ctx):
     t = update.message.text.strip()
     if not t.isdigit():
-        await update.message.reply_text("Faqat raqam! Qayta:")
-        return S_ADM_DEL
+        await update.message.reply_text("Faqat raqam! Qayta:"); return S_ADM_DEL
     uid = int(t)
     if uid in ADMIN_IDS:
-        await update.message.reply_text("Asosiy adminni ochirib bolmaydi!")
-        return END
+        await update.message.reply_text("Asosiy adminni ochirib bolmaydi!"); return END
     if db.del_admin(uid):
-        await update.message.reply_text(
-            f"<code>{uid}</code> ochirildi!",
-            parse_mode=H, reply_markup=kb.admins_kb()
-        )
+        await update.message.reply_text(f"<code>{uid}</code> ochirildi!", parse_mode=H, reply_markup=kb.admins_kb())
     else:
         await update.message.reply_text("Bu ID topilmadi.")
     return END
 
 async def cb_adm_list(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     total = len(ADMIN_IDS) + len(db.get_admins())
     await q.edit_message_text(
         f"📋 <b>Adminlar royxati</b>\n\nJami: <b>{total} ta</b> admin",
         parse_mode=H, reply_markup=kb.admins_kb()
     )
 
-# ═══════════════════════════════
-# ADMIN — BROADCAST
-# ═══════════════════════════════
-
+# ═══════════════════════════════════════════════
+# BROADCAST
+# ═══════════════════════════════════════════════
 async def msg_broadcast(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id):
-        return
+    if not db.is_admin(update.effective_user.id): return
     count = len(db.all_user_ids())
     await update.message.reply_text(
         f"📨 <b>Xabar yuborish</b>\n\nJami: <b>{count} ta</b>\n\nXabar turini tanlang:",
@@ -769,19 +718,13 @@ async def msg_broadcast(update: Update, ctx):
     )
 
 async def cb_bc_text(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
-    await q.edit_message_text(
-        "Barcha userlarga yuboriladigan xabarni yozing:\n\nBekor: /cancel"
-    )
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("Barcha userlarga yuboriladigan xabarni yozing:\n\nBekor: /cancel")
     return S_BC_TEXT
 
 async def cb_bc_fwd(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
-    await q.edit_message_text(
-        "Forward qilinadigan xabarni yuboring:\n\nBekor: /cancel"
-    )
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("Forward qilinadigan xabarni yuboring:\n\nBekor: /cancel")
     return S_BC_FWD
 
 async def st_bc_text(update: Update, ctx):
@@ -791,19 +734,13 @@ async def st_bc_text(update: Update, ctx):
     msg = await update.message.reply_text(f"Yuborilmoqda: 0/{len(users)}")
     for i, uid in enumerate(users):
         try:
-            await ctx.bot.send_message(uid, text, parse_mode=H)
-            sent += 1
-        except Exception:
-            failed += 1
-        if (i + 1) % 30 == 0:
-            try:
-                await msg.edit_text(f"Yuborilmoqda: {i+1}/{len(users)}")
-            except Exception:
-                pass
+            await ctx.bot.send_message(uid, text, parse_mode=H); sent += 1
+        except Exception: failed += 1
+        if (i+1) % 30 == 0:
+            try: await msg.edit_text(f"Yuborilmoqda: {i+1}/{len(users)}")
+            except Exception: pass
         await asyncio.sleep(0.04)
-    await msg.edit_text(
-        f"Broadcast tugadi!\n\nYuborildi: {sent} ta\nXatolik: {failed} ta"
-    )
+    await msg.edit_text(f"Broadcast tugadi!\nYuborildi: {sent}\nXatolik: {failed}")
     return END
 
 async def st_bc_fwd(update: Update, ctx):
@@ -812,156 +749,113 @@ async def st_bc_fwd(update: Update, ctx):
     msg = await update.message.reply_text(f"Forward: 0/{len(users)}")
     for i, uid in enumerate(users):
         try:
-            await update.message.forward(uid)
-            sent += 1
-        except Exception:
-            failed += 1
-        if (i + 1) % 30 == 0:
-            try:
-                await msg.edit_text(f"Forward: {i+1}/{len(users)}")
-            except Exception:
-                pass
+            await update.message.forward(uid); sent += 1
+        except Exception: failed += 1
+        if (i+1) % 30 == 0:
+            try: await msg.edit_text(f"Forward: {i+1}/{len(users)}")
+            except Exception: pass
         await asyncio.sleep(0.04)
-    await msg.edit_text(
-        f"Forward tugadi!\n\nYuborildi: {sent} ta\nXatolik: {failed} ta"
-    )
+    await msg.edit_text(f"Forward tugadi!\nYuborildi: {sent}\nXatolik: {failed}")
     return END
 
-# ═══════════════════════════════
-# ADMIN — SOZLAMALAR
-# ═══════════════════════════════
-
+# ═══════════════════════════════════════════════
+# SOZLAMALAR
+# ═══════════════════════════════════════════════
 async def msg_settings(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id):
-        return
-    price   = db.gs("sub_price") or "15000"
-    days    = db.gs("sub_days")  or "30"
-    movch   = db.gs("movie_ch")  or MOVIE_CH or "Sozlanmagan"
-    uzcard  = db.gs("card_uzcard") or "Sozlanmagan"
-    humo    = db.gs("card_humo")   or "Sozlanmagan"
-    visa    = db.gs("card_visa")   or "Sozlanmagan"
-    owner   = db.gs("card_owner")  or "Sozlanmagan"
-    welcome = db.gs("welcome_text") or "—"
+    if not db.is_admin(update.effective_user.id): return
+    price = db.gs("sub_price") or "15000"
+    days  = db.gs("sub_days")  or "30"
+    movch = db.gs("movie_ch")  or MOVIE_CH or "Sozlanmagan"
+    uz    = db.gs("card_uzcard") or "—"
+    humo  = db.gs("card_humo")   or "—"
+    visa  = db.gs("card_visa")   or "—"
+    owner = db.gs("card_owner")  or "—"
+    wlc   = db.gs("welcome_text") or "—"
     await update.message.reply_text(
         f"⚙️ <b>Sozlamalar</b>\n\n"
         f"Obuna: {int(price):,} som / {days} kun\n"
         f"Kino kanal: <code>{movch}</code>\n\n"
-        f"UzCard: <code>{uzcard}</code>\n"
-        f"Humo: <code>{humo}</code>\n"
-        f"Visa: <code>{visa}</code>\n"
-        f"Egasi: {owner}\n\n"
-        f"Xush kelibsiz:\n<i>{welcome}</i>",
+        f"UzCard: <code>{uz}</code>\nHumo: <code>{humo}</code>\n"
+        f"Visa: <code>{visa}</code>\nEgasi: {owner}\n\n"
+        f"Xush kelibsiz:\n<i>{wlc}</i>",
         parse_mode=H, reply_markup=kb.settings_kb()
     )
 
 async def cb_st_cards(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
-    await q.edit_message_text(
-        "Qaysi kartani sozlamoqchisiz?",
-        reply_markup=kb.cards_kb()
-    )
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("Qaysi kartani sozlamoqchisiz?", reply_markup=kb.cards_kb())
 
 async def cb_sc_card(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     key = q.data.replace("sc_", "")
     ctx.user_data["st_key"] = "card_" + key
-    names = {
-        "uzcard": "UzCard raqami",
-        "humo":   "Humo raqami",
-        "visa":   "Visa raqami",
-        "owner":  "Karta egasi ismi"
-    }
-    await q.edit_message_text(
-        f"Yangi {names.get(key, key)} ni yuboring:\n\nBekor: /cancel"
-    )
+    names = {"uzcard": "UzCard raqami", "humo": "Humo raqami",
+             "visa": "Visa raqami", "owner": "Karta egasi ismi"}
+    await q.edit_message_text(f"Yangi {names.get(key, key)} kiriting:\n\nBekor: /cancel")
     return S_ST_CARD
 
 async def st_save_card(update: Update, ctx):
     db.ss(ctx.user_data["st_key"], update.message.text.strip())
     await update.message.reply_text("Saqlandi!", reply_markup=kb.settings_kb())
-    ctx.user_data.clear()
-    return END
+    ctx.user_data.clear(); return END
 
 async def cb_st_back(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     await q.edit_message_text("Karta sozlamalari:", reply_markup=kb.cards_kb())
 
 async def cb_st_price(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     price = db.gs("sub_price") or "15000"
     days  = db.gs("sub_days")  or "30"
     await q.edit_message_text(
-        f"Hozirgi: <b>{int(price):,} som / {days} kun</b>\n\n"
-        f"Yangi narxni yuboring (faqat raqam):\n\nBekor: /cancel",
-        parse_mode=H
-    )
+        f"Hozirgi: <b>{int(price):,} som / {days} kun</b>\n\nYangi narxni yuboring:\n\nBekor: /cancel",
+        parse_mode=H)
     return S_ST_PRICE
 
 async def st_save_price(update: Update, ctx):
     t = update.message.text.strip()
     if not t.isdigit():
-        await update.message.reply_text("Faqat raqam! Masalan: 15000")
-        return S_ST_PRICE
+        await update.message.reply_text("Faqat raqam!"); return S_ST_PRICE
     db.ss("sub_price", t)
     await update.message.reply_text(
-        f"Narx {int(t):,} som saqlandi!\n\n"
-        f"Kunni ozgartirmoqchimisiz? (raqam yuboring, ozgarmasa - yuboring):",
-        parse_mode=H
-    )
-    ctx.user_data["wait_days"] = True
-    return S_ST_PRICE
+        f"Narx {int(t):,} som saqlandi!\n\nKunni ozgartirmoqchimisiz? (raqam yoki -):")
+    ctx.user_data["wait_days"] = True; return S_ST_PRICE
 
 async def st_save_days(update: Update, ctx):
     t = update.message.text.strip()
     if ctx.user_data.get("wait_days"):
         if t != "-" and t.isdigit():
             db.ss("sub_days", t)
-            await update.message.reply_text(
-                f"Muddat {t} kun saqlandi!", reply_markup=kb.settings_kb()
-            )
+            await update.message.reply_text(f"Muddat {t} kun saqlandi!", reply_markup=kb.settings_kb())
         else:
             await update.message.reply_text("Muddat ozgarmadi.", reply_markup=kb.settings_kb())
-        ctx.user_data.clear()
-        return END
+        ctx.user_data.clear(); return END
     return END
 
 async def cb_st_movch(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     cur = db.gs("movie_ch") or MOVIE_CH or "Sozlanmagan"
     await q.edit_message_text(
         f"Hozirgi kino kanal: <code>{cur}</code>\n\n"
-        f"Yangi kanal ID yuboring:\n"
-        f"Masalan: -1001234567890\n\n"
+        f"Yangi kanal ID yuboring:\nMasalan: -1001234567890\n\n"
         f"Kanal ID olish: @JsonDumpBot ga forward qiling\n\n"
-        f"Botni kanalga admin qilib qoshing!\n\n"
-        f"Bekor: /cancel",
-        parse_mode=H
-    )
+        f"Botni kanalga admin qilib qoshing!\n\nBekor: /cancel",
+        parse_mode=H)
     return S_ST_MOVCH
 
 async def st_save_movch(update: Update, ctx):
     val = update.message.text.strip()
     db.ss("movie_ch", val)
-    await update.message.reply_text(
-        f"Kino kanal saqlandi: <code>{val}</code>",
-        parse_mode=H, reply_markup=kb.settings_kb()
-    )
+    await update.message.reply_text(f"Kino kanal saqlandi: <code>{val}</code>",
+                                     parse_mode=H, reply_markup=kb.settings_kb())
     return END
 
 async def cb_st_welcome(update: Update, ctx):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     cur = db.gs("welcome_text") or "—"
     await q.edit_message_text(
-        f"Hozirgi xush kelibsiz matni:\n<i>{cur}</i>\n\n"
-        f"Yangi matnni yuboring:\n\nBekor: /cancel",
-        parse_mode=H
-    )
+        f"Hozirgi xush kelibsiz:\n<i>{cur}</i>\n\nYangi matn yuboring:\n\nBekor: /cancel",
+        parse_mode=H)
     return S_ST_WELCOME
 
 async def st_save_welcome(update: Update, ctx):
@@ -970,26 +864,18 @@ async def st_save_welcome(update: Update, ctx):
     return END
 
 async def cmd_clear_cache(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id):
-        return
+    if not db.is_admin(update.effective_user.id): return
     ctx.user_data.clear()
     ctx.chat_data.clear()
-    await update.message.reply_text(
-        "Kesh tozalandi!", reply_markup=kb.admin_kb()
-    )
-
-# ═══════════════════════════════
-# UMUMIY
-# ═══════════════════════════════
+    await update.message.reply_text("Kesh tozalandi!", reply_markup=kb.admin_kb())
 
 async def msg_orqaga(update: Update, ctx):
     ctx.user_data.clear()
     await cmd_start(update, ctx)
 
-# ═══════════════════════════════
+# ═══════════════════════════════════════════════
 # MAIN
-# ═══════════════════════════════
-
+# ═══════════════════════════════════════════════
 def main():
     db.init_db()
     logging.info("Database tayyor")
@@ -1028,13 +914,17 @@ def main():
         states={S_DEL: [MessageHandler(filters.TEXT & ~filters.COMMAND, st_del)]},
         fallbacks=[CommandHandler("cancel", cancel)], per_user=True,
     ))
-    # Kanal qoshish
+    # Kanal qoshish — murakkab tizim
     app.add_handler(ConversationHandler(
-        entry_points=[CallbackQueryHandler(cb_ch_add, pattern="^ch_add$")],
+        entry_points=[
+            CallbackQueryHandler(cb_chm, pattern=r"^chm_(id|link|post)_(public|private|link)$"),
+        ],
         states={
-            S_CH_ID:    [MessageHandler(filters.TEXT & ~filters.COMMAND, st_ch_id)],
-            S_CH_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, st_ch_title)],
-            S_CH_LINK:  [MessageHandler(filters.TEXT & ~filters.COMMAND, st_ch_link)],
+            S_CH_INPUT: [
+                MessageHandler(filters.FORWARDED, st_ch_input),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, st_ch_input),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, st_ch_title_final),
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)], per_user=True,
     ))
@@ -1084,7 +974,6 @@ def main():
     app.add_handler(CommandHandler("start",      cmd_start))
     app.add_handler(CommandHandler("admin",      cmd_start))
     app.add_handler(CommandHandler("cancel",     cancel))
-    app.add_handler(CommandHandler("delch",      cmd_delch))
     app.add_handler(CommandHandler("clearcache", cmd_clear_cache))
 
     # Callbacks
@@ -1094,10 +983,12 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_pay_no,   pattern=r"^pno_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_mv_list,  pattern="^mv_list$"))
     app.add_handler(CallbackQueryHandler(cb_mv_back,  pattern="^mv_back$"))
+    app.add_handler(CallbackQueryHandler(cb_ch_add,   pattern="^ch_add$"))
     app.add_handler(CallbackQueryHandler(cb_ch_list,  pattern="^ch_list$"))
-    app.add_handler(CallbackQueryHandler(cb_ch_del,   pattern="^ch_del$"))
-    app.add_handler(CallbackQueryHandler(cb_dch,      pattern=r"^dch_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_ch_back,  pattern="^ch_back$"))
+    app.add_handler(CallbackQueryHandler(cb_cht,      pattern="^cht_(public|private|link)$"))
+    app.add_handler(CallbackQueryHandler(cb_chview,   pattern=r"^chview_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_dch,      pattern=r"^dch_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_adm_list, pattern="^adm_list$"))
     app.add_handler(CallbackQueryHandler(cb_st_cards, pattern="^st_cards$"))
     app.add_handler(CallbackQueryHandler(cb_st_back,  pattern="^st_back$"))
@@ -1124,16 +1015,15 @@ def main():
         msg_find_movie
     ))
 
-    # Start
     if os.environ.get("RENDER") == "true":
-        logging.info("Webhook rejimida (Render)...")
+        logging.info("Webhook (Render)...")
         app.run_webhook(
             listen="0.0.0.0", port=PORT,
             url_path=BOT_TOKEN,
             webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}",
         )
     else:
-        logging.info("Polling rejimida (local)...")
+        logging.info("Polling (local)...")
         app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
