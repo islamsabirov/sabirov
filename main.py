@@ -531,16 +531,19 @@ async def st_ch_id(update: Update, ctx):
 async def st_ch_title(update: Update, ctx):
     ctx.user_data["ch_title"] = update.message.text.strip()
     ch_id = ctx.user_data["ch_id"]
-    # Havolani avtomatik yaratish
     if ch_id.startswith("@"):
         auto_link = f"https://t.me/{ch_id[1:]}"
     else:
         auto_link = ""
     ctx.user_data["ch_auto_link"] = auto_link
+    if auto_link:
+        hint = f"Avtomatik: {auto_link} — ozgartirmasangiz - yuboring"
+    else:
+        hint = ""
     await update.message.reply_text(
         f"🔗 Kanal havolasini yuboring:\n"
         f"<i>Masalan: https://t.me/mykanal</i>\n\n"
-        f"{'💡 Avtomatik: <code>' + auto_link + '</code> — o\\'zgartirmasangiz - yuboring' if auto_link else ''}",
+        f"{'💡 ' + hint if hint else ''}",
         parse_mode=H
     )
     return S_CH_LINK
