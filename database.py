@@ -68,7 +68,6 @@ def init_db():
     db.commit()
     db.close()
 
-# ── SETTINGS ──────────────────────────────
 def gs(key):
     db = con()
     r = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
@@ -81,7 +80,6 @@ def ss(key, val):
     db.commit()
     db.close()
 
-# ── USERS ─────────────────────────────────
 def add_user(uid, name, uname):
     db = con()
     is_new = db.execute("SELECT id FROM users WHERE id=?", (uid,)).fetchone() is None
@@ -113,7 +111,6 @@ def user_stats():
     db.close()
     return s
 
-# ── ADMINS ────────────────────────────────
 def is_admin(uid):
     from config import ADMIN_IDS
     if uid in ADMIN_IDS: return True
@@ -149,7 +146,6 @@ def all_admin_ids():
             ids.append(a["id"])
     return ids
 
-# ── MOVIES ────────────────────────────────
 def save_movie(code, msg_id, title=""):
     db = con()
     db.execute("INSERT OR REPLACE INTO movies(code,msg_id,title) VALUES(?,?,?)",
@@ -194,7 +190,6 @@ def get_movies(limit=30, offset=0):
     db.close()
     return r
 
-# ── CHANNELS ──────────────────────────────
 def add_channel(ch_id, title, link):
     db = con()
     db.execute("INSERT OR REPLACE INTO channels(channel_id,title,link) VALUES(?,?,?)",
@@ -215,7 +210,6 @@ def del_channel(row_id):
     db.close()
     return n > 0
 
-# ── PAYMENTS ──────────────────────────────
 def add_payment(uid, amount, card_type, file_id):
     db = con()
     if db.execute("SELECT id FROM payments WHERE user_id=? AND status='pending'",
@@ -242,7 +236,6 @@ def resolve_payment(pay_id, status):
     db.commit()
     db.close()
 
-# ── SUBSCRIPTION ──────────────────────────
 def give_sub(uid, days=30):
     db = con()
     expires = (datetime.now() + timedelta(days=days)).isoformat()
