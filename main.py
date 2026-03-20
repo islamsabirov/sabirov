@@ -320,7 +320,13 @@ async def cb_mv_add(update: Update, ctx):
     q = update.callback_query
     await q.answer()
     await q.edit_message_text(
-        "🎬 <b>Kino qo'shish — 1/3</b>\n\nKino kodini yuboring:\n<i>Masalan: 101, 202, 350</i>\n\n❌ Bekor: /cancel",
+        "🎬 <b>Kinolar bo'limidasiz:</b>\n\nQuyidagi amallardan birini tanlang:",
+        parse_mode=H, reply_markup=kb.movies_kb()
+    )
+    # Kod kiritish uchun alohida xabar
+    await ctx.bot.send_message(
+        q.from_user.id,
+        "🎬 <b>Kino qo'shish</b>\n\nKino kodini kiriting:\n<i>Masalan: 101, 202, 350</i>\n\n❌ Bekor: /cancel",
         parse_mode=H
     )
     return S_MV_CODE
@@ -378,7 +384,15 @@ async def st_mv_title(update: Update, ctx):
 async def cb_mv_edit(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text("📝 <b>Kino tahrirlash</b>\n\nEski kino kodini yuboring:\n\n❌ Bekor: /cancel", parse_mode=H)
+    await q.edit_message_text(
+        "🎬 <b>Kinolar bo'limidasiz:</b>\n\nQuyidagi amallardan birini tanlang:",
+        parse_mode=H, reply_markup=kb.movies_kb()
+    )
+    await ctx.bot.send_message(
+        q.from_user.id,
+        "📝 <b>Kino tahrirlash</b>\n\nTahrirlamoqchi bo'lgan kino kodini kiriting:\n\n❌ Bekor: /cancel",
+        parse_mode=H
+    )
     return S_ED_OLD
 
 
@@ -423,7 +437,15 @@ async def st_ed_title(update: Update, ctx):
 async def cb_mv_del(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text("🗑 <b>Kino o'chirish</b>\n\nO'chiriladigan kino kodini yuboring:\n\n❌ Bekor: /cancel", parse_mode=H)
+    await q.edit_message_text(
+        "🎬 <b>Kinolar bo'limidasiz:</b>\n\nQuyidagi amallardan birini tanlang:",
+        parse_mode=H, reply_markup=kb.movies_kb()
+    )
+    await ctx.bot.send_message(
+        q.from_user.id,
+        "🗑 <b>Kino o'chirish</b>\n\nO'chirmoqchi bo'lgan kino kodini kiriting:\n\n❌ Bekor: /cancel",
+        parse_mode=H
+    )
     return S_DEL
 
 
@@ -705,6 +727,19 @@ async def msg_settings(update: Update, ctx):
     )
 
 
+async def cmd_clear_cache(update: Update, ctx):
+    """Kesh tozalash — admin buyrug'i"""
+    if not db.is_admin(update.effective_user.id):
+        return
+    ctx.user_data.clear()
+    ctx.chat_data.clear()
+    await update.message.reply_text(
+        "🧹 <b>Kesh tozalandi!</b>\n\nBarcha vaqtinchalik ma'lumotlar o'chirildi.",
+        parse_mode=H,
+        reply_markup=kb.admin_kb()
+    )
+
+
 async def cb_st_cards(update: Update, ctx):
     q = update.callback_query
     await q.answer()
@@ -900,6 +935,7 @@ def main():
     app.add_handler(CommandHandler("admin",  cmd_start))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("delch",  cmd_delch))
+    app.add_handler(CommandHandler("clearcache", cmd_clear_cache))
 
     app.add_handler(CallbackQueryHandler(cb_chk_sub,  pattern="^chk_sub$"))
     app.add_handler(CallbackQueryHandler(cb_buy_sub,  pattern="^buy_sub$"))
