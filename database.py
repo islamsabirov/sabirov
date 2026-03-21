@@ -3,6 +3,12 @@ from datetime import datetime, timedelta
 
 DB = "bot.db"
 
+PLANS = {
+    "1_month": {"days": 30,  "label": "1 Oy",  "key": "sub_price_1m"},
+    "3_month": {"days": 90,  "label": "3 Oy",  "key": "sub_price_3m"},
+    "1_year":  {"days": 365, "label": "1 Yil", "key": "sub_price_1y"},
+}
+
 def con():
     c = sqlite3.connect(DB)
     c.row_factory = sqlite3.Row
@@ -59,8 +65,6 @@ def init_db():
             value TEXT DEFAULT ''
         );
     """)
-
-    # Eski DB ga yangi ustunlar qo'shish
     for sql in [
         "ALTER TABLE movies ADD COLUMN is_pro INTEGER DEFAULT 0",
         "ALTER TABLE channels ADD COLUMN type TEXT DEFAULT 'telegram'",
@@ -74,7 +78,6 @@ def init_db():
             db.commit()
         except Exception:
             pass
-
     defaults = [
         ("sub_price_1m",   "15000"),
         ("sub_price_3m",   "40000"),
@@ -104,8 +107,6 @@ def ss(key, val):
     db.commit()
     db.close()
 
-# ═══════ USERS ═══════════════════════════
-
 def add_user(uid, name, uname, referral_by=None):
     db = con()
     is_new = db.execute("SELECT id FROM users WHERE id=?", (uid,)).fetchone() is None
@@ -115,17 +116,9 @@ def add_user(uid, name, uname, referral_by=None):
             (uid, name or "", uname or "", referral_by)
         )
         if referral_by:
-            db.execute(
-                "UPDATE users SET referral_count=referral_count+1 WHERE id=?",
-                (referral_by,)
-            )
-            # Referral bonus tekshirish
-            bonus = int(db.execute(
-                "SELECT value FROM settings WHERE key='referral_bonus'"
-            ).fetchone()["value"] or "5")
-            user = db.execute(
-                "SELECT referral_count FROM users WHERE id=?", (referral_by,)
-            ).fetchone()
+            db.execute("UPDATE users SET referral_count=referral_count+1 WHERE id=?", (referral_by,))
+            bonus = int(db.execute("SELECT value FROM settings WHERE key='referral_bonus'").fetchone()["value"] or "5")
+            user = db.execute("SELECT referral_count FROM users WHERE id=?", (referral_by,)).fetchone()
             if user and user["referral_count"] % bonus == 0:
                 expires = (datetime.now() + timedelta(days=30)).isoformat()
                 db.execute(
@@ -170,8 +163,6 @@ def user_stats():
     db.close()
     return s
 
-# ═══════ ADMINS ══════════════════════════
-
 def is_admin(uid):
     from config import ADMIN_IDS
     if uid in ADMIN_IDS: return True
@@ -197,7 +188,7 @@ def get_admins():
     db = con()
     r = db.execute("SELECT * FROM admins").fetchall()
     db.close()
-    return r
+    return [dict(x) for x in r]
 
 def all_admin_ids():
     from config import ADMIN_IDS
@@ -206,8 +197,6 @@ def all_admin_ids():
         if a["id"] not in ids:
             ids.append(a["id"])
     return ids
-
-# ═══════ MOVIES ══════════════════════════
 
 def save_movie(code, msg_id, title="", is_pro=0):
     db = con()
@@ -221,16 +210,18 @@ def save_movie(code, msg_id, title="", is_pro=0):
 def get_movie(code):
     db = con()
     r = db.execute("SELECT * FROM movies WHERE code=?", (str(code).strip(),)).fetchone()
-    if r:
-        db.execute("UPDATE movies SET views=views+1 WHERE code=?", (str(code).strip(),))
-        db.commit()
     db.close()
     return dict(r) if r else None
 
+def increment_views(code):
+    db = con()
+    db.execute("UPDATE movies SET views=views+1 WHERE code=?", (str(code).strip(),))
+    db.commit()
+    db.close()
+
 def set_movie_pro(code, is_pro):
     db = con()
-    db.execute("UPDATE movies SET is_pro=? WHERE code=?",
-               (1 if is_pro else 0, str(code).strip()))
+    db.execute("UPDATE movies SET is_pro=? WHERE code=?", (1 if is_pro else 0, str(code).strip()))
     db.commit()
     db.close()
 
@@ -251,27 +242,17 @@ def del_movie(code):
     db.close()
     return n > 0
 
-def movie_count():
-    db = con()
-    c = db.execute("SELECT COUNT(*) as c FROM movies").fetchone()["c"]
-    db.close()
-    return c
-
-def get_movies(limit=30, offset=0):
+def get_movies(limit=50, offset=0):
     db = con()
     r = db.execute("SELECT * FROM movies ORDER BY rowid DESC LIMIT ? OFFSET ?",
                    (limit, offset)).fetchall()
     db.close()
     return [dict(x) for x in r]
 
-# ═══════ CHANNELS ════════════════════════
-
 def add_channel(channel_id, title, link, ch_type="telegram"):
     db = con()
-    db.execute(
-        "INSERT INTO channels(channel_id,title,link,type) VALUES(?,?,?,?)",
-        (channel_id, title, link, ch_type)
-    )
+    db.execute("INSERT INTO channels(channel_id,title,link,type) VALUES(?,?,?,?)",
+               (channel_id, title, link, ch_type))
     db.commit()
     db.close()
 
@@ -294,18 +275,9 @@ def del_channel(row_id):
     db.close()
     return n > 0
 
-# ═══════ PAYMENTS ════════════════════════
-
-PLANS = {
-    "1_month": {"days": 30,  "label": "1 Oy",  "key": "sub_price_1m"},
-    "3_month": {"days": 90,  "label": "3 Oy",  "key": "sub_price_3m"},
-    "1_year":  {"days": 365, "label": "1 Yil", "key": "sub_price_1y"},
-}
-
 def add_payment(uid, amount, card_type, file_id, plan="1_month"):
     db = con()
-    if db.execute("SELECT id FROM payments WHERE user_id=? AND status='pending'",
-                  (uid,)).fetchone():
+    if db.execute("SELECT id FROM payments WHERE user_id=? AND status='pending'", (uid,)).fetchone():
         db.close()
         return None
     c = db.execute(
@@ -329,14 +301,10 @@ def resolve_payment(pay_id, status):
     db.commit()
     db.close()
 
-# ═══════ SUBSCRIPTION ════════════════════
-
 def give_sub(uid, plan="1_month"):
     days = PLANS.get(plan, {"days": 30})["days"]
     db = con()
-    existing = db.execute(
-        "SELECT expires_at FROM subscriptions WHERE user_id=?", (uid,)
-    ).fetchone()
+    existing = db.execute("SELECT expires_at FROM subscriptions WHERE user_id=?", (uid,)).fetchone()
     if existing:
         current = datetime.fromisoformat(existing["expires_at"])
         base = max(current, datetime.now())
@@ -352,9 +320,7 @@ def give_sub(uid, plan="1_month"):
 
 def has_sub(uid):
     db = con()
-    r = db.execute(
-        "SELECT expires_at FROM subscriptions WHERE user_id=?", (uid,)
-    ).fetchone()
+    r = db.execute("SELECT expires_at FROM subscriptions WHERE user_id=?", (uid,)).fetchone()
     db.close()
     if not r: return False
     return datetime.now() < datetime.fromisoformat(r["expires_at"])
