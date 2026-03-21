@@ -1228,14 +1228,21 @@ async def st_bc_text(update: Update, ctx):
                 pass
         await asyncio.sleep(0.04)
 
+    # ✅ reply_markup olib tashlandi, keyin alohida menyu yuborildi
     await safe_edit_message_text(
         ctx, msg.chat_id, msg.message_id,
         "✅ Broadcast tugadi!\n\n"
         "✅ Yuborildi: " + str(sent) + "\n"
-        "❌ Xatolik: " + str(failed),
+        "❌ Xatolik: " + str(failed)
+    )
+    # ✅ Menyuni alohida yangi xabar sifatida yuborish
+    await ctx.bot.send_message(
+        update.effective_user.id,
+        "📋 Admin panel:",
         reply_markup=kb.admin_kb()
     )
     return END
+
 
 async def st_bc_fwd(update: Update, ctx):
     users = db.all_user_ids()
@@ -1259,11 +1266,17 @@ async def st_bc_fwd(update: Update, ctx):
                 pass
         await asyncio.sleep(0.04)
 
+    # ✅ reply_markup olib tashlandi, keyin alohida menyu yuborildi
     await safe_edit_message_text(
         ctx, msg.chat_id, msg.message_id,
         "✅ Forward tugadi!\n\n"
         "✅ Yuborildi: " + str(sent) + "\n"
-        "❌ Xatolik: " + str(failed),
+        "❌ Xatolik: " + str(failed)
+    )
+    # ✅ Menyuni alohida yangi xabar sifatida yuborish
+    await ctx.bot.send_message(
+        update.effective_user.id,
+        "📋 Admin panel:",
         reply_markup=kb.admin_kb()
     )
     return END
