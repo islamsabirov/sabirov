@@ -34,7 +34,7 @@ def init_db():
             channel_id TEXT DEFAULT '',
             title      TEXT DEFAULT '',
             link       TEXT DEFAULT '',
-            ch_type    TEXT DEFAULT 'public'
+            type       TEXT DEFAULT 'telegram'
         );
         CREATE TABLE IF NOT EXISTS payments (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,11 +54,13 @@ def init_db():
             value TEXT DEFAULT ''
         );
     """)
+    # channels jadvaliga type ustuni qoshish (eski DB uchun)
     try:
-        db.execute("ALTER TABLE channels ADD COLUMN ch_type TEXT DEFAULT 'public'")
+        db.execute("ALTER TABLE channels ADD COLUMN type TEXT DEFAULT 'telegram'")
         db.commit()
     except Exception:
         pass
+
     defaults = [
         ("sub_price",    "15000"),
         ("sub_days",     "30"),
@@ -196,14 +198,16 @@ def get_movies(limit=30, offset=0):
     db.close()
     return r
 
-# ch_type: 'public'  = Ommaviy/Shaxsiy Telegram kanal/guruh
-#          'private' = Shaxsiy/Sorovli havola
-#          'link'    = Oddiy havola (Instagram, sayt va h.k.)
-
-def add_channel(channel_id, title, link, ch_type="public"):
+def add_channel(channel_id, title, link, ch_type="telegram"):
+    """
+    ch_type: telegram | private | link
+    - telegram: Telegram kanal/guruh (obuna tekshiriladi)
+    - private: Shaxsiy/sorovli havola (faqat havola korinadi)
+    - link: Oddiy havola (Instagram, sayt va boshqalar)
+    """
     db = con()
     db.execute(
-        "INSERT INTO channels(channel_id,title,link,ch_type) VALUES(?,?,?,?)",
+        "INSERT INTO channels(channel_id,title,link,type) VALUES(?,?,?,?)",
         (channel_id, title, link, ch_type)
     )
     db.commit()
@@ -215,12 +219,10 @@ def get_channels():
     db.close()
     return r
 
-def get_checkable_channels():
-    """Faqat Telegram API orqali tekshiriladigan kanallar"""
+def get_telegram_channels():
+    """Faqat obuna tekshiriladigan Telegram kanallar"""
     db = con()
-    r = db.execute(
-        "SELECT * FROM channels WHERE ch_type IN ('public','private')"
-    ).fetchall()
+    r = db.execute("SELECT * FROM channels WHERE type='telegram'").fetchall()
     db.close()
     return r
 
