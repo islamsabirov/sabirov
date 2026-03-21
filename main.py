@@ -536,7 +536,6 @@ async def cb_ch_add(update: Update, ctx):
     )
 
 async def cb_cht_telegram(update: Update, ctx):
-    """Ommaviy/Shaxsiy Telegram kanal"""
     q = update.callback_query
     await q.answer()
     ctx.user_data[CH_TYPE_KEY] = "telegram"
@@ -558,18 +557,9 @@ async def cb_cht_telegram(update: Update, ctx):
             InlineKeyboardButton("◀️ Orqaga", callback_data="ch_add")
         ]])
     )
-    await ctx.bot.send_message(
-        q.from_user.id,
-        "Kanal ID yoki username ni yuboring:\n\n"
-        "Masalan: @mykanal yoki -1001234567890\n\n"
-        "Kanal ID olish: @JsonDumpBot ga forward qiling\n\n"
-        "Botni kanalga admin qilib qoshing!\n\n"
-        "Bekor: /cancel"
-    )
     return S_CH_ID
 
 async def cb_cht_private(update: Update, ctx):
-    """Shaxsiy/So'rovli havola"""
     q = update.callback_query
     await q.answer()
     ctx.user_data[CH_TYPE_KEY] = "private"
@@ -577,30 +567,27 @@ async def cb_cht_private(update: Update, ctx):
         "🔒 <b>Shaxsiy / Sorovli havola - ulash</b>\n\n"
         "Quyida kanal/guruhni ulashning 3 ta oddiy usuli mavjud:\n\n"
         "<b>1. ID orqali ulash</b>\n"
-        "Kanal yoki guruh ID raqamini kiriting.\n\n"
+        "Kanal yoki guruh ID raqamini kiriting.\n"
+        "ID odatda -100... shaklida boladi.\n\n"
         "<b>2. Havola orqali ulash</b>\n"
-        "Kanal/guruh havolasini yuboring.\n\n"
+        "Kanal/guruh havolasini yuboring.\n"
+        "Masalan: @kanal_nomi yoki https://t.me/kanal\n\n"
         "<b>3. Postni ulash orqali</b>\n"
-        "Kanal yoki guruhdan bitta postni ulashing.",
+        "Kanal yoki guruhdan bitta postni ulashing va shu\n"
+        "xabarni botga yuboring.\n"
+        "Bot avtomatik ravishda kanalni taniydi.",
         parse_mode=H,
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("◀️ Orqaga", callback_data="ch_add")
         ]])
     )
-    await ctx.bot.send_message(
-        q.from_user.id,
-        "Kanal ID yoki username ni yuboring:\n\n"
-        "Masalan: @mykanal yoki -1001234567890\n\n"
-        "Bekor: /cancel"
-    )
     return S_CH_ID
 
 async def cb_cht_link(update: Update, ctx):
-    """Oddiy havola"""
     q = update.callback_query
     await q.answer()
     ctx.user_data[CH_TYPE_KEY] = "link"
-    ctx.user_data["ch_id"] = ""  # Link uchun ID kerak emas
+    ctx.user_data["ch_id"] = ""
     await q.edit_message_text(
         "🔗 <b>Havola kiriting:</b>\n\n"
         "<i>Masalan: https://site.com yoki https://t.me/kanal</i>\n\n"
@@ -610,65 +597,108 @@ async def cb_cht_link(update: Update, ctx):
             InlineKeyboardButton("◀️ Orqaga", callback_data="ch_add")
         ]])
     )
-    # Link uchun to'g'ridan title so'rash
-    await ctx.bot.send_message(
-        q.from_user.id,
-        "Havola nomini kiriting (tugmada ko'rinadi):\n\n"
-        "Masalan: Instagram, Reelstorm.uz\n\nBekor: /cancel"
-    )
-    # Link uchun title -> keyin link
-    ctx.user_data["waiting_link_title"] = True
-    return S_CH_TITLE
+    return S_CH_LINK
 
 async def st_ch_id(update: Update, ctx):
     text = update.message.text.strip()
     ch_type = ctx.user_data.get(CH_TYPE_KEY, "telegram")
 
-    if ch_type in ("telegram", "private"):
-        if not (text.startswith("@") or text.startswith("-100")):
-            await update.message.reply_text(
-                "Notogri format!\n\n"
-                "Faqat:\n• @mykanal\n• -1001234567890\n\nQayta:"
-            )
-            return S_CH_ID
-
-    ctx.user_data["ch_id"] = text
-    await update.message.reply_text("Kanal nomini kiriting (tugmada ko'rinadi):")
-    return S_CH_TITLE
-
-async def st_ch_title(update: Update, ctx):
-    ctx.user_data["ch_title"] = update.message.text.strip()
-    ch_type = ctx.user_data.get(CH_TYPE_KEY, "telegram")
-    ch_id = ctx.user_data.get("ch_id", "")
-
-    if ctx.user_data.get("waiting_link_title"):
-        # Link turi — havola so'rash
+    # Forward qilingan post orqali kanal ID olish
+    if update.message.forward_from_chat:
+        chat = update.message.forward_from_chat
+        ch_id = str(chat.id)
+        title = chat.title or chat.username or ch_id
+        if ch_id.startswith("-100"):
+            link = f"https://t.me/{chat.username}" if chat.username else ""
+        else:
+            link = ""
+        db.add_channel(ch_id, title, link, ch_type)
         await update.message.reply_text(
-            "Havolani kiriting:\n\nMasalan: https://t.me/mykanal yoki https://instagram.com/..."
+            f"Kanal qoshildi!\n\nNom: {title}\nID: <code>{ch_id}</code>",
+            parse_mode=H, reply_markup=kb.channels_kb()
+        )
+        ctx.user_data.clear()
+        return END
+
+    # ID yoki username
+    if text.startswith("@"):
+        ch_id = text
+        title = text[1:]  # @ ni olib tashlash
+        link = f"https://t.me/{text[1:]}"
+    elif text.startswith("-100"):
+        ch_id = text
+        title = f"Kanal {text[-6:]}"  # Oxirgi raqamlar
+        link = ""
+    elif text.startswith("http"):
+        # Havola yuborilgan — bu S_CH_LINK ga mos
+        ch_id = text
+        title = text.split("/")[-1] or text
+        link = text
+    else:
+        await update.message.reply_text(
+            "Notogri format!\n\n"
+            "• @mykanal\n"
+            "• -1001234567890\n"
+            "• Yoki kanaldan post forward qiling\n\nQayta:"
+        )
+        return S_CH_ID
+
+    ctx.user_data["ch_id"] = ch_id
+    ctx.user_data["ch_title"] = title
+    ctx.user_data["ch_auto_link"] = link
+    ctx.user_data["ch_auto_saved"] = False
+
+    # Telegram uchun tasdiqlash so'rash
+    if ch_type == "telegram":
+        await update.message.reply_text(
+            f"Kanal: <b>{title}</b>\n\n"
+            f"Botni kanalga admin qilib qoshing!\n\n"
+            f"Havola (ozgartirish uchun yuboring, aks holda - yuboring):\n"
+            f"{link if link else 'Havola yoq — qoshing'}",
+            parse_mode=H
+        )
+        return S_CH_LINK
+    else:
+        # Private uchun havola so'rash
+        await update.message.reply_text(
+            f"Nom: <b>{title}</b>\n\nHavolani yuboring (yoki - yuboring):",
+            parse_mode=H
         )
         return S_CH_LINK
 
-    if ch_type == "telegram" and ch_id.startswith("@"):
-        auto_link = "https://t.me/" + ch_id[1:]
-    elif ch_type == "private":
-        auto_link = ""
-    else:
-        auto_link = ""
 
-    ctx.user_data["ch_auto_link"] = auto_link
-
-    if auto_link:
-        await update.message.reply_text(
-            f"Havola: {auto_link}\n\nO'zgartirmasangiz - yuboring, yoki yangi havola kiriting:"
-        )
-    else:
-        await update.message.reply_text(
-            "Kanal havolasini kiriting:\nMasalan: https://t.me/joinchat/..."
-        )
+async def st_ch_title(update: Update, ctx):
+    # Bu endi ishlatilmaydi, lekin fallback sifatida qoladi
+    ctx.user_data["ch_title"] = update.message.text.strip()
+    await update.message.reply_text("Havolani kiriting:")
     return S_CH_LINK
+
 
 async def st_ch_link(update: Update, ctx):
     text = update.message.text.strip()
+    ch_type = ctx.user_data.get(CH_TYPE_KEY, "telegram")
+
+    if ch_type == "link":
+        # Faqat havola — nomni havoladan olamiz
+        link = text
+        # Nomni avtomatik olish
+        if "instagram.com/" in link:
+            title = "Instagram"
+        elif "youtube.com/" in link or "youtu.be/" in link:
+            title = "YouTube"
+        elif "t.me/" in link:
+            title = link.split("t.me/")[-1].split("/")[0]
+        else:
+            title = link.split("/")[2] if "//" in link else link
+        db.add_channel("", title, link, ch_type)
+        await update.message.reply_text(
+            f"Havola qoshildi!\n\nNom: {title}\nHavola: {link}",
+            reply_markup=kb.channels_kb()
+        )
+        ctx.user_data.clear()
+        return END
+
+    # Telegram / private
     if text == "-":
         link = ctx.user_data.get("ch_auto_link", "")
     else:
@@ -676,16 +706,11 @@ async def st_ch_link(update: Update, ctx):
 
     ch_id = ctx.user_data.get("ch_id", "")
     title = ctx.user_data.get("ch_title", "Kanal")
-    ch_type = ctx.user_data.get(CH_TYPE_KEY, "telegram")
 
     db.add_channel(ch_id, title, link, ch_type)
-
-    type_names = {"telegram": "Telegram kanal/guruh", "private": "Shaxsiy havola", "link": "Oddiy havola"}
+    type_names = {"telegram": "Telegram kanal", "private": "Shaxsiy havola"}
     await update.message.reply_text(
-        f"Kanal qoshildi!\n\n"
-        f"Tur: {type_names.get(ch_type, ch_type)}\n"
-        f"Nom: {title}\n"
-        f"Havola: {link}",
+        f"Kanal qoshildi!\n\nTur: {type_names.get(ch_type, ch_type)}\nNom: {title}",
         reply_markup=kb.channels_kb()
     )
     ctx.user_data.clear()
@@ -1066,7 +1091,10 @@ def main():
             CallbackQueryHandler(cb_cht_link,     pattern="^cht_link$"),
         ],
         states={
-            S_CH_ID:    [MessageHandler(filters.TEXT & ~filters.COMMAND, st_ch_id)],
+            S_CH_ID:    [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, st_ch_id),
+                MessageHandler(filters.ALL & ~filters.COMMAND, st_ch_id),  # forward uchun
+            ],
             S_CH_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, st_ch_title)],
             S_CH_LINK:  [MessageHandler(filters.TEXT & ~filters.COMMAND, st_ch_link)],
         },
