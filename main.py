@@ -11,7 +11,7 @@ from telegram.ext import (
     CallbackQueryHandler, ConversationHandler, filters
 )
 from telegram.constants import ParseMode
-from telegram.error import TelegramError
+from telegram.error import TelegramError, BadRequest
 
 import database as db
 import keyboards as kb
@@ -39,6 +39,64 @@ CH_TYPE_KEY = "ch_type"
 # ═══════════════════════════════
 # YORDAMCHILAR
 # ═══════════════════════════════
+
+async def safe_edit_message_text(context, chat_id, message_id, text, parse_mode=None, reply_markup=None):
+    """Safely edit message text without triggering 'Message is not modified' error"""
+    try:
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup
+        )
+        return True
+    except BadRequest as e:
+        if "Message is not modified" in str(e):
+            # Message content is identical, skip editing
+            return False
+        raise
+    except Exception as e:
+        logging.error(f"Error editing message: {e}")
+        raise
+
+async def safe_edit_message_caption(context, chat_id, message_id, caption, parse_mode=None, reply_markup=None):
+    """Safely edit message caption without triggering 'Message is not modified' error"""
+    try:
+        await context.bot.edit_message_caption(
+            chat_id=chat_id,
+            message_id=message_id,
+            caption=caption,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup
+        )
+        return True
+    except BadRequest as e:
+        if "Message is not modified" in str(e):
+            # Message content is identical, skip editing
+            return False
+        raise
+    except Exception as e:
+        logging.error(f"Error editing caption: {e}")
+        raise
+
+async def safe_edit_message_reply_markup(context, chat_id, message_id, reply_markup):
+    """Safely edit message reply markup without triggering errors"""
+    try:
+        await context.bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=reply_markup
+        )
+        return True
+    except BadRequest as e:
+        if "Message is not modified" in str(e):
+            # Message content is identical, skip editing
+            return False
+        raise
+    except Exception as e:
+        logging.error(f"Error editing reply markup: {e}")
+        raise
 
 async def check_subs(bot, uid):
     result = []
@@ -90,7 +148,10 @@ async def cb_cancel(update: Update, ctx):
     q = update.callback_query
     await q.answer()
     ctx.user_data.clear()
-    await q.edit_message_text("Bekor qilindi.")
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "Bekor qilindi."
+    )
 
 # ═══════════════════════════════
 # START
@@ -153,7 +214,10 @@ async def cb_chk_sub(update: Update, ctx):
     if blocked:
         await q.answer("Hali barcha kanallarga obuna bolmadingiz!", show_alert=True)
         return
-    await q.edit_message_text("Obuna tasdiqlandi! Kino kodini yuboring.")
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "Obuna tasdiqlandi! Kino kodini yuboring."
+    )
     mkb = kb.admin_kb() if db.is_admin(u.id) else kb.user_kb()
     await ctx.bot.send_message(u.id, "👇", reply_markup=mkb)
 
@@ -295,7 +359,8 @@ async def cb_buy_sub(update: Update, ctx):
     price_1m = db.gs("sub_price_1m") or "15000"
     price_3m = db.gs("sub_price_3m") or "40000"
     price_1y = db.gs("sub_price_1y") or "120000"
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         f"💎 <b>Pro obuna tariflarini tanlang:</b>\n\n"
         f"📅 1 Oy — <b>{int(price_1m):,} som</b>\n"
         f"📅 3 Oy — <b>{int(price_3m):,} som</b>\n"
@@ -312,7 +377,8 @@ async def cb_plan(update: Update, ctx):
     plan_info = db.PLANS.get(plan, {"label": "1 Oy", "key": "sub_price_1m"})
     price = db.gs(plan_info["key"]) or "15000"
 
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         f"📅 <b>{plan_info['label']} — {int(price):,} som</b>\n\n"
         f"Tolov usulini tanlang:",
         parse_mode=H, reply_markup=kb.buy_kb()
@@ -324,7 +390,8 @@ async def cb_back_to_plans(update: Update, ctx):
     price_1m = db.gs("sub_price_1m") or "15000"
     price_3m = db.gs("sub_price_3m") or "40000"
     price_1y = db.gs("sub_price_1y") or "120000"
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         f"Pro obuna tariflarini tanlang:\n\n"
         f"1 Oy — {int(price_1m):,} som\n"
         f"3 Oy — {int(price_3m):,} som\n"
@@ -343,7 +410,8 @@ async def cb_pay_card(update: Update, ctx):
     owner = db.gs("card_owner") or "Admin"
     names = {"uzcard": "UzCard", "humo": "Humo", "visa": "Visa/MasterCard"}
     ctx.user_data["pay_card"] = card_type
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         f"{names.get(card_type, '')} orqali tolov\n\n"
         f"Tarif: <b>{plan_info['label']}</b>\n"
         f"Summa: <b>{int(price):,} som</b>\n\n"
@@ -406,7 +474,10 @@ async def cb_pay_ok(update: Update, ctx):
     db.resolve_payment(pay_id, "approved")
     db.give_sub(pay["user_id"], plan)
     plan_info = db.PLANS.get(plan, {"label": "1 Oy"})
-    await q.edit_message_caption(f"TASDIQLANDI\n\n{q.message.caption}", parse_mode=H)
+    await safe_edit_message_caption(
+        ctx, q.message.chat_id, q.message.message_id,
+        f"TASDIQLANDI\n\n{q.message.caption}", parse_mode=H
+    )
     try:
         await ctx.bot.send_message(
             pay["user_id"],
@@ -425,7 +496,10 @@ async def cb_pay_no(update: Update, ctx):
         await q.answer("Allaqachon hal qilingan!", show_alert=True)
         return
     db.resolve_payment(pay_id, "rejected")
-    await q.edit_message_caption(f"BEKOR QILINDI\n\n{q.message.caption}", parse_mode=H)
+    await safe_edit_message_caption(
+        ctx, q.message.chat_id, q.message.message_id,
+        f"BEKOR QILINDI\n\n{q.message.caption}", parse_mode=H
+    )
     try:
         await ctx.bot.send_message(
             pay["user_id"],
@@ -475,7 +549,10 @@ async def msg_movies(update: Update, ctx):
 async def cb_mv_add(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text("🎬 <b>Kinolar bomi</b>", parse_mode=H, reply_markup=kb.movies_kb())
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "🎬 <b>Kinolar bomi</b>", parse_mode=H, reply_markup=kb.movies_kb()
+    )
     await ctx.bot.send_message(
         q.from_user.id,
         "Kino kodini kiriting:\nMasalan: 101, 202\n\nBekor: /cancel"
@@ -538,7 +615,8 @@ async def st_mv_title(update: Update, ctx):
 async def cb_mv_pro(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         "Pro boshqaruv:\n\n"
         "Pro qilish — kino faqat obunachilarga korinadi\n"
         "Oddiy qilish — kino hammaga korinadi",
@@ -548,7 +626,10 @@ async def cb_mv_pro(update: Update, ctx):
 async def cb_mv_set_pro(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text("Pro qilmoqchi bolgan kino kodini kiriting:\n\nBekor: /cancel")
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "Pro qilmoqchi bolgan kino kodini kiriting:\n\nBekor: /cancel"
+    )
     return S_PRO_SET
 
 async def st_pro_set(update: Update, ctx):
@@ -567,7 +648,10 @@ async def st_pro_set(update: Update, ctx):
 async def cb_mv_unset_pro(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text("Oddiy qilmoqchi bolgan kino kodini kiriting:\n\nBekor: /cancel")
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "Oddiy qilmoqchi bolgan kino kodini kiriting:\n\nBekor: /cancel"
+    )
     return S_PRO_UNSET
 
 async def st_pro_unset(update: Update, ctx):
@@ -586,7 +670,10 @@ async def st_pro_unset(update: Update, ctx):
 async def cb_mv_edit(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text("🎬 <b>Kinolar bomi</b>", parse_mode=H, reply_markup=kb.movies_kb())
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "🎬 <b>Kinolar bomi</b>", parse_mode=H, reply_markup=kb.movies_kb()
+    )
     await ctx.bot.send_message(q.from_user.id, "Tahrirlash uchun kino kodini kiriting:\n\nBekor: /cancel")
     return S_ED_OLD
 
@@ -630,7 +717,10 @@ async def st_ed_title(update: Update, ctx):
 async def cb_mv_del(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text("🎬 <b>Kinolar bomi</b>", parse_mode=H, reply_markup=kb.movies_kb())
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "🎬 <b>Kinolar bomi</b>", parse_mode=H, reply_markup=kb.movies_kb()
+    )
     await ctx.bot.send_message(q.from_user.id, "Ochirmoqchi bolgan kino kodini kiriting:\n\nBekor: /cancel")
     return S_DEL
 
@@ -648,13 +738,17 @@ async def cb_mv_list(update: Update, ctx):
     await q.answer()
     movies = db.get_movies(30)
     if not movies:
-        await q.edit_message_text("Kino bazasi bosh.", reply_markup=kb.movies_kb())
+        await safe_edit_message_text(
+            ctx, q.message.chat_id, q.message.message_id,
+            "Kino bazasi bosh.", reply_markup=kb.movies_kb()
+        )
         return
     lines = [f"📋 <b>Kinolar ({len(movies)} ta):</b>\n"]
     for m in movies:
         pro = " 💎" if m.get("is_pro") else ""
         lines.append(f"<code>{m['code']}</code>{pro} | {m['title'] or '—'} | {m['views']} marta")
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         "\n".join(lines), parse_mode=H,
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("Orqaga", callback_data="mv_back")
@@ -664,7 +758,10 @@ async def cb_mv_list(update: Update, ctx):
 async def cb_mv_back(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text("🎬 <b>Kinolar bomi</b>", parse_mode=H, reply_markup=kb.movies_kb())
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "🎬 <b>Kinolar bomi</b>", parse_mode=H, reply_markup=kb.movies_kb()
+    )
 
 # ═══════════════════════════════
 # ADMIN — KANALLAR
@@ -681,7 +778,8 @@ async def msg_channels(update: Update, ctx):
 async def cb_ch_add(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         "Majburiy obuna turini tanlang:\n\n"
         "Ommaviy/Shaxsiy — Telegram kanal/guruh (obuna tekshiriladi)\n"
         "Shaxsiy/Sorovli — maxfiy havola\n"
@@ -693,7 +791,8 @@ async def cb_cht_telegram(update: Update, ctx):
     q = update.callback_query
     await q.answer()
     ctx.user_data[CH_TYPE_KEY] = "telegram"
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         "Ommaviy / Shaxsiy (Kanal / Guruh)",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Orqaga", callback_data="ch_add")]])
     )
@@ -709,7 +808,8 @@ async def cb_cht_private(update: Update, ctx):
     q = update.callback_query
     await q.answer()
     ctx.user_data[CH_TYPE_KEY] = "private"
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         "Shaxsiy / Sorovli havola",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Orqaga", callback_data="ch_add")]])
     )
@@ -724,7 +824,8 @@ async def cb_cht_link(update: Update, ctx):
     await q.answer()
     ctx.user_data[CH_TYPE_KEY] = "link"
     ctx.user_data["ch_id"] = ""
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         "Oddiy havola",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Orqaga", callback_data="ch_add")]])
     )
@@ -790,23 +891,33 @@ async def cb_ch_list(update: Update, ctx):
     await q.answer()
     chs = db.get_channels()
     if not chs:
-        await q.edit_message_text("Kanallar yoq.", reply_markup=kb.channels_kb())
+        await safe_edit_message_text(
+            ctx, q.message.chat_id, q.message.message_id,
+            "Kanallar yoq.", reply_markup=kb.channels_kb()
+        )
         return
     lines = [f"Majburiy kanallar ({len(chs)} ta):"]
     for c in chs:
         icons = {"telegram": "📢", "private": "🔒", "link": "🌐"}
         icon = icons.get(c.get("type", "telegram"), "📢")
         lines.append(f"{icon} {c['title']}")
-    await q.edit_message_text("\n".join(lines), reply_markup=kb.channel_list_kb(chs))
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "\n".join(lines), reply_markup=kb.channel_list_kb(chs)
+    )
 
 async def cb_ch_del(update: Update, ctx):
     q = update.callback_query
     await q.answer()
     chs = db.get_channels()
     if not chs:
-        await q.edit_message_text("Ochirish uchun kanallar yoq.", reply_markup=kb.channels_kb())
+        await safe_edit_message_text(
+            ctx, q.message.chat_id, q.message.message_id,
+            "Ochirish uchun kanallar yoq.", reply_markup=kb.channels_kb()
+        )
         return
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         "Ochirish uchun kanal nomini bosing:",
         reply_markup=kb.channel_del_list_kb(chs)
     )
@@ -820,9 +931,13 @@ async def cb_dch(update: Update, ctx):
         await q.answer("Kanal ochirildi!", show_alert=True)
         chs = db.get_channels()
         if not chs:
-            await q.edit_message_text("Kanallar yoq.", reply_markup=kb.channels_kb())
+            await safe_edit_message_text(
+                ctx, q.message.chat_id, q.message.message_id,
+                "Kanallar yoq.", reply_markup=kb.channels_kb()
+            )
             return
-        await q.edit_message_text(
+        await safe_edit_message_text(
+            ctx, q.message.chat_id, q.message.message_id,
             "Ochirish uchun kanal nomini bosing:",
             reply_markup=kb.channel_del_list_kb(chs)
         )
@@ -833,7 +948,8 @@ async def cb_ch_back(update: Update, ctx):
     q = update.callback_query
     await q.answer()
     chs = db.get_channels()
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         f"Majburiy obuna kanallar — {len(chs)} ta",
         reply_markup=kb.channels_kb()
     )
@@ -859,7 +975,10 @@ async def msg_admins(update: Update, ctx):
 async def cb_adm_add(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text("Yangi admin Telegram ID sini yuboring:\n\nID olish: @userinfobot ga /start\n\nBekor: /cancel")
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "Yangi admin Telegram ID sini yuboring:\n\nID olish: @userinfobot ga /start\n\nBekor: /cancel"
+    )
     return S_ADM_ADD
 
 async def st_adm_add(update: Update, ctx):
@@ -881,7 +1000,10 @@ async def st_adm_add(update: Update, ctx):
 async def cb_adm_del(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text("Admin Telegram ID sini yuboring:\n\nBekor: /cancel")
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "Admin Telegram ID sini yuboring:\n\nBekor: /cancel"
+    )
     return S_ADM_DEL
 
 async def st_adm_del(update: Update, ctx):
@@ -903,7 +1025,8 @@ async def cb_adm_list(update: Update, ctx):
     q = update.callback_query
     await q.answer()
     total = len(ADMIN_IDS) + len(db.get_admins())
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         f"Adminlar royxati\n\nJami: <b>{total} ta</b> admin",
         parse_mode=H, reply_markup=kb.admins_kb()
     )
@@ -923,13 +1046,19 @@ async def msg_broadcast(update: Update, ctx):
 async def cb_bc_text(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text("Barcha userlarga yuboriladigan xabarni yozing:\n\nBekor: /cancel")
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "Barcha userlarga yuboriladigan xabarni yozing:\n\nBekor: /cancel"
+    )
     return S_BC_TEXT
 
 async def cb_bc_fwd(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text("Forward qilinadigan xabarni yuboring:\n\nBekor: /cancel")
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "Forward qilinadigan xabarni yuboring:\n\nBekor: /cancel"
+    )
     return S_BC_FWD
 
 async def st_bc_text(update: Update, ctx):
@@ -944,10 +1073,17 @@ async def st_bc_text(update: Update, ctx):
         except Exception:
             failed += 1
         if (i + 1) % 30 == 0:
-            try: await msg.edit_text(f"Yuborilmoqda: {i+1}/{len(users)}")
+            try: 
+                await safe_edit_message_text(
+                    ctx, msg.chat_id, msg.message_id,
+                    f"Yuborilmoqda: {i+1}/{len(users)}"
+                )
             except Exception: pass
         await asyncio.sleep(0.04)
-    await msg.edit_text(f"Broadcast tugadi!\n\nYuborildi: {sent}\nXatolik: {failed}")
+    await safe_edit_message_text(
+        ctx, msg.chat_id, msg.message_id,
+        f"Broadcast tugadi!\n\nYuborildi: {sent}\nXatolik: {failed}"
+    )
     return END
 
 async def st_bc_fwd(update: Update, ctx):
@@ -961,10 +1097,17 @@ async def st_bc_fwd(update: Update, ctx):
         except Exception:
             failed += 1
         if (i + 1) % 30 == 0:
-            try: await msg.edit_text(f"Forward: {i+1}/{len(users)}")
+            try: 
+                await safe_edit_message_text(
+                    ctx, msg.chat_id, msg.message_id,
+                    f"Forward: {i+1}/{len(users)}"
+                )
             except Exception: pass
         await asyncio.sleep(0.04)
-    await msg.edit_text(f"Forward tugadi!\n\nYuborildi: {sent}\nXatolik: {failed}")
+    await safe_edit_message_text(
+        ctx, msg.chat_id, msg.message_id,
+        f"Forward tugadi!\n\nYuborildi: {sent}\nXatolik: {failed}"
+    )
     return END
 
 # ═══════════════════════════════
@@ -1000,7 +1143,10 @@ async def msg_settings(update: Update, ctx):
 async def cb_st_cards(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text("Qaysi kartani sozlamoqchisiz?", reply_markup=kb.cards_kb())
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "Qaysi kartani sozlamoqchisiz?", reply_markup=kb.cards_kb()
+    )
 
 async def cb_sc_card(update: Update, ctx):
     q = update.callback_query
@@ -1009,7 +1155,10 @@ async def cb_sc_card(update: Update, ctx):
     ctx.user_data["st_key"] = "card_" + key
     names = {"uzcard": "UzCard raqami", "humo": "Humo raqami",
              "visa": "Visa raqami", "owner": "Karta egasi ismi"}
-    await q.edit_message_text(f"Yangi {names.get(key, key)} ni yuboring:\n\nBekor: /cancel")
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        f"Yangi {names.get(key, key)} ni yuboring:\n\nBekor: /cancel"
+    )
     return S_ST_CARD
 
 async def st_save_card(update: Update, ctx):
@@ -1021,7 +1170,10 @@ async def st_save_card(update: Update, ctx):
 async def cb_st_back(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    await q.edit_message_text("Karta sozlamalari:", reply_markup=kb.cards_kb())
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
+        "Karta sozlamalari:", reply_markup=kb.cards_kb()
+    )
 
 async def cb_st_prices(update: Update, ctx):
     q = update.callback_query
@@ -1029,7 +1181,8 @@ async def cb_st_prices(update: Update, ctx):
     price_1m = db.gs("sub_price_1m") or "15000"
     price_3m = db.gs("sub_price_3m") or "40000"
     price_1y = db.gs("sub_price_1y") or "120000"
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         f"Obuna narxlari:\n\n"
         f"1 Oy: {int(price_1m):,} som\n"
         f"3 Oy: {int(price_3m):,} som\n"
@@ -1046,7 +1199,8 @@ async def cb_sp(update: Update, ctx):
     plan_info = db.PLANS.get(plan, {"label": "1 Oy"})
     key = "sub_price_" + plan.replace("_month", "m").replace("_year", "y")
     current = db.gs(key) or "15000"
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         f"{plan_info['label']} narxi: {int(current):,} som\n\nYangi narx yuboring:\n\nBekor: /cancel"
     )
     return S_ST_PRICE
@@ -1067,7 +1221,8 @@ async def cb_st_movch(update: Update, ctx):
     q = update.callback_query
     await q.answer()
     cur = db.gs("movie_ch") or MOVIE_CH or "Sozlanmagan"
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         f"Hozirgi: <code>{cur}</code>\n\nYangi kino kanal ID yuboring:\n\n"
         f"@JsonDumpBot ga forward qiling\n\nBekor: /cancel",
         parse_mode=H
@@ -1083,7 +1238,8 @@ async def cb_st_welcome(update: Update, ctx):
     q = update.callback_query
     await q.answer()
     cur = db.gs("welcome_text") or "—"
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         f"Hozirgi:\n<i>{cur}</i>\n\nYangi matnni yuboring:\n\nBekor: /cancel",
         parse_mode=H
     )
@@ -1098,7 +1254,8 @@ async def cb_st_refbonus(update: Update, ctx):
     q = update.callback_query
     await q.answer()
     cur = db.gs("referral_bonus") or "5"
-    await q.edit_message_text(
+    await safe_edit_message_text(
+        ctx, q.message.chat_id, q.message.message_id,
         f"Hozirgi: har <b>{cur}</b> ta referral = 1 oy premium\n\nYangi sonni yuboring:\n\nBekor: /cancel",
         parse_mode=H
     )
