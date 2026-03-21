@@ -126,26 +126,18 @@ async def cmd_start(update: Update, ctx):
         )
 
 async def must_subscribe(bot, uid):
-    """
-    Foydalanuvchi barcha kanallarga obuna bo'lganmi?
-    - Telegram kanallar: obuna tekshiriladi
-    - Private/link kanallar: har doim ko'rsatiladi (tekshirib bo'lmaydi)
-    Qaytaradi: (to'siq_bormi, ko'rsatiladigan_kanallar)
-    """
     all_chs = db.get_channels()
     if not all_chs:
-        return False, []  # Kanallar yo'q — ruxsat
+        return False, []
 
-    # Telegram kanallarni tekshir
+    # sqlite3.Row ni dict ga o'tkazish
+    all_chs = [dict(c) for c in all_chs]
+
     unsubbed_telegram = await check_subs(bot, uid)
+    unsubbed_telegram = [dict(c) for c in unsubbed_telegram]
 
-    # Non-telegram kanallar (private/link) — har doim ko'rsatiladi
     non_telegram = [c for c in all_chs if c.get("type", "telegram") in ("private", "link")]
-
-    # Ko'rsatiladigan kanallar = obuna bo'lmagan Telegram + barcha non-telegram
     show_channels = unsubbed_telegram + non_telegram
-
-    # To'siq bor: Telegram kanalga obuna bo'lmagan YOKI non-telegram kanallar bor
     blocked = len(unsubbed_telegram) > 0 or len(non_telegram) > 0
 
     return blocked, show_channels
