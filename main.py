@@ -41,7 +41,6 @@ CH_TYPE_KEY = "ch_type"
 # ═══════════════════════════════
 
 async def safe_edit_message_text(context, chat_id, message_id, text, parse_mode=None, reply_markup=None):
-    """Safely edit message text without triggering 'Message is not modified' error"""
     try:
         await context.bot.edit_message_text(
             chat_id=chat_id,
@@ -56,11 +55,10 @@ async def safe_edit_message_text(context, chat_id, message_id, text, parse_mode=
             return False
         raise
     except Exception as e:
-        logging.error(f"Error editing message: {e}")
-        raise
+        logging.error("Error editing message: %s", e)
+        return False
 
 async def safe_edit_message_caption(context, chat_id, message_id, caption, parse_mode=None, reply_markup=None):
-    """Safely edit message caption without triggering 'Message is not modified' error"""
     try:
         await context.bot.edit_message_caption(
             chat_id=chat_id,
@@ -75,8 +73,8 @@ async def safe_edit_message_caption(context, chat_id, message_id, caption, parse
             return False
         raise
     except Exception as e:
-        logging.error(f"Error editing caption: {e}")
-        raise
+        logging.error("Error editing caption: %s", e)
+        return False
 
 async def check_subs(bot, uid):
     result = []
@@ -139,7 +137,6 @@ async def cb_cancel(update: Update, ctx):
 
 async def cmd_start(update: Update, ctx):
     u = update.effective_user
-    # Referral tekshirish
     referral_by = None
     if ctx.args and ctx.args[0].startswith("ref"):
         try:
@@ -151,7 +148,6 @@ async def cmd_start(update: Update, ctx):
 
     is_new = db.add_user(u.id, u.first_name, u.username or "", referral_by)
 
-    # Referral bonus bildirishnoma
     if referral_by and is_new:
         ref_user = db.get_user(referral_by)
         if ref_user:
@@ -160,7 +156,7 @@ async def cmd_start(update: Update, ctx):
                 try:
                     await ctx.bot.send_message(
                         referral_by,
-                        f"Tabrik! {bonus} ta referral to'ldingiz — 1 oy premium qo'shildi!"
+                        "Tabrik! " + str(bonus) + " ta referral to'ldingiz — 1 oy premium qo'shildi!"
                     )
                 except Exception:
                     pass
@@ -176,13 +172,13 @@ async def cmd_start(update: Update, ctx):
 
     if db.is_admin(u.id):
         await update.message.reply_text(
-            f"👑 <b>Salom, {u.first_name}!</b>\n\nAdmin paneliga xush kelibsiz.",
+            "<b>Salom, " + u.first_name + "!</b>\n\nAdmin paneliga xush kelibsiz. 👑",
             parse_mode=H, reply_markup=kb.admin_kb()
         )
     else:
         welcome = db.gs("welcome_text") or "Kino kodini yuboring"
         await update.message.reply_text(
-            f"🎬 <b>Salom, {u.first_name}!</b>\n\n{welcome}",
+            "🎬 <b>Salom, " + u.first_name + "!</b>\n\n" + welcome,
             parse_mode=H, reply_markup=kb.user_kb()
         )
 
@@ -220,23 +216,24 @@ async def msg_find_movie(update: Update, ctx):
     movie = db.get_movie(code)
     if not movie:
         await update.message.reply_text(
-            f"❌ <b>{code}</b> kodli kino topilmadi.", parse_mode=H
+            "❌ <b>" + code + "</b> kodli kino topilmadi.", parse_mode=H
         )
         return
 
-    # Pro kino tekshirish
     if movie.get("is_pro") and not db.has_sub(u.id):
         price_1m = db.gs("sub_price_1m") or "15000"
         price_3m = db.gs("sub_price_3m") or "40000"
         price_1y = db.gs("sub_price_1y") or "120000"
+        text = (
+            "💎 <b>Bu kino faqat Pro foydalanuvchilar uchun!</b>\n\n"
+            "Pro obuna narxlari:\n"
+            "📅 1 Oy — " + "{:,}".format(int(price_1m)) + " som\n"
+            "📅 3 Oy — " + "{:,}".format(int(price_3m)) + " som\n"
+            "📅 1 Yil — " + "{:,}".format(int(price_1y)) + " som\n\n"
+            "Obuna sotib olish uchun Profilim tugmasini bosing."
+        )
         await update.message.reply_text(
-            f"💎 <b>Bu kino faqat Pro foydalanuvchilar uchun!</b>\n\n"
-            f"Pro obuna narxlari:\n"
-            f"📅 1 Oy — {int(price_1m):,} som\n"
-            f"📅 3 Oy — {int(price_3m):,} som\n"
-            f"📅 1 Yil — {int(price_1y):,} som\n\n"
-            f"Obuna sotib olish uchun Profilim tugmasini bosing.",
-            parse_mode=H,
+            text, parse_mode=H,
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("Obuna sotib olish", callback_data="buy_sub")
             ]])
@@ -249,17 +246,15 @@ async def msg_find_movie(update: Update, ctx):
         return
 
     try:
-        # Kino kanaldan foydalanuvchiga yuborish
         await ctx.bot.copy_message(
-            chat_id=u.id, 
-            from_chat_id=ch, 
+            chat_id=u.id,
+            from_chat_id=ch,
             message_id=int(movie["msg_id"])
         )
-        # Kino ko'rishlar sonini oshirish
         db.increment_views(code)
     except TelegramError as e:
-        logging.error(f"Copy xato: {e}")
-        await update.message.reply_text(f"Kinoni yuborishda xatolik. Kino kodi: {code}")
+        logging.error("Copy xato: %s", e)
+        await update.message.reply_text("Kinoni yuborishda xatolik. Kino kodi: " + code)
 
 # ═══════════════════════════════
 # USER — PROFIL
@@ -278,9 +273,10 @@ async def msg_profile(update: Update, ctx):
     if sub and info:
         plan_names = {"1_month": "1 Oy", "3_month": "3 Oy", "1_year": "1 Yil", "referral_bonus": "Referral Bonus"}
         plan = plan_names.get(info.get("plan", ""), "")
-        sub_text = f"Faol ({info['expires_at'][:10]} gacha) — {plan}"
+        expires = info['expires_at'][:10]
+        sub_text = "Faol (" + expires + " gacha) — " + plan
     else:
-        sub_text = "Obuna yoq"
+        sub_text = "Obuna yo'q"
 
     ref_count = user["referral_count"] if user else 0
 
@@ -288,19 +284,19 @@ async def msg_profile(update: Update, ctx):
         InlineKeyboardButton("Obuna sotib olish", callback_data="buy_sub")
     ]])
 
-    await update.message.reply_text(
-        f"👤 <b>Mening profilim</b>\n\n"
-        f"ID: <code>{u.id}</code>\n"
-        f"Ism: {u.first_name}\n"
-        f"Obuna: {sub_text}\n"
-        f"Referral: {ref_count} ta\n\n"
-        f"━━━━━━━━━━━━━━━\n"
-        f"💰 <b>Obuna narxlari:</b>\n"
-        f"📅 1 Oy — {int(price_1m):,} som\n"
-        f"📅 3 Oy — {int(price_3m):,} som\n"
-        f"📅 1 Yil — {int(price_1y):,} som",
-        parse_mode=H, reply_markup=markup
+    text = (
+        "👤 <b>Mening profilim</b>\n\n"
+        "ID: <code>" + str(u.id) + "</code>\n"
+        "Ism: " + u.first_name + "\n"
+        "Obuna: " + sub_text + "\n"
+        "Referral: " + str(ref_count) + " ta\n\n"
+        "━━━━━━━━━━━━━━━\n"
+        "💰 <b>Obuna narxlari:</b>\n"
+        "📅 1 Oy — " + "{:,}".format(int(price_1m)) + " som\n"
+        "📅 3 Oy — " + "{:,}".format(int(price_3m)) + " som\n"
+        "📅 1 Yil — " + "{:,}".format(int(price_1y)) + " som"
     )
+    await update.message.reply_text(text, parse_mode=H, reply_markup=markup)
 
 # ═══════════════════════════════
 # USER — REFERRAL
@@ -311,17 +307,17 @@ async def msg_referral(update: Update, ctx):
     user = db.get_user(u.id)
     ref_count = user["referral_count"] if user else 0
     bonus = db.gs("referral_bonus") or "5"
-    ref_link = f"https://t.me/{ctx.bot.username}?start=ref{u.id}"
+    ref_link = "https://t.me/" + ctx.bot.username + "?start=ref" + str(u.id)
     next_bonus = int(bonus) - (ref_count % int(bonus))
 
-    await update.message.reply_text(
-        f"👥 <b>Referral tizimi</b>\n\n"
-        f"Sizning linkingiz:\n<code>{ref_link}</code>\n\n"
-        f"Taklif qilganlar: <b>{ref_count} ta</b>\n"
-        f"Keyingi bonus uchun: <b>{next_bonus} ta</b>\n\n"
-        f"Har <b>{bonus} ta</b> referral uchun — <b>1 oy premium</b> bepul!",
-        parse_mode=H
+    text = (
+        "👥 <b>Referral tizimi</b>\n\n"
+        "Sizning linkingiz:\n<code>" + ref_link + "</code>\n\n"
+        "Taklif qilganlar: <b>" + str(ref_count) + " ta</b>\n"
+        "Keyingi bonus uchun: <b>" + str(next_bonus) + " ta</b>\n\n"
+        "Har <b>" + bonus + " ta</b> referral uchun — <b>1 oy premium</b> bepul!"
     )
+    await update.message.reply_text(text, parse_mode=H)
 
 async def msg_help(update: Update, ctx):
     await update.message.reply_text(
@@ -343,15 +339,14 @@ async def cb_buy_sub(update: Update, ctx):
     price_1m = db.gs("sub_price_1m") or "15000"
     price_3m = db.gs("sub_price_3m") or "40000"
     price_1y = db.gs("sub_price_1y") or "120000"
-    
-    # Yangi xabar yuborish (callback query ga javob)
-    await q.message.reply_text(
-        f"💎 <b>Pro obuna tariflarini tanlang:</b>\n\n"
-        f"📅 1 Oy — <b>{int(price_1m):,} som</b>\n"
-        f"📅 3 Oy — <b>{int(price_3m):,} som</b>\n"
-        f"📅 1 Yil — <b>{int(price_1y):,} som</b>",
-        parse_mode=H, reply_markup=kb.plan_kb()
+
+    text = (
+        "💎 <b>Pro obuna tariflarini tanlang:</b>\n\n"
+        "📅 1 Oy — <b>" + "{:,}".format(int(price_1m)) + " som</b>\n"
+        "📅 3 Oy — <b>" + "{:,}".format(int(price_3m)) + " som</b>\n"
+        "📅 1 Yil — <b>" + "{:,}".format(int(price_1y)) + " som</b>"
     )
+    await q.message.reply_text(text, parse_mode=H, reply_markup=kb.plan_kb())
 
 async def cb_plan(update: Update, ctx):
     q = update.callback_query
@@ -362,11 +357,13 @@ async def cb_plan(update: Update, ctx):
     plan_info = db.PLANS.get(plan, {"label": "1 Oy", "key": "sub_price_1m"})
     price = db.gs(plan_info["key"]) or "15000"
 
+    text = (
+        "📅 <b>" + plan_info['label'] + " — " + "{:,}".format(int(price)) + " som</b>\n\n"
+        "Tolov usulini tanlang:"
+    )
     await safe_edit_message_text(
         ctx, q.message.chat_id, q.message.message_id,
-        f"📅 <b>{plan_info['label']} — {int(price):,} som</b>\n\n"
-        f"Tolov usulini tanlang:",
-        parse_mode=H, reply_markup=kb.buy_kb()
+        text, parse_mode=H, reply_markup=kb.buy_kb()
     )
 
 async def cb_back_to_plans(update: Update, ctx):
@@ -375,13 +372,15 @@ async def cb_back_to_plans(update: Update, ctx):
     price_1m = db.gs("sub_price_1m") or "15000"
     price_3m = db.gs("sub_price_3m") or "40000"
     price_1y = db.gs("sub_price_1y") or "120000"
+    text = (
+        "Pro obuna tariflarini tanlang:\n\n"
+        "1 Oy — " + "{:,}".format(int(price_1m)) + " som\n"
+        "3 Oy — " + "{:,}".format(int(price_3m)) + " som\n"
+        "1 Yil — " + "{:,}".format(int(price_1y)) + " som"
+    )
     await safe_edit_message_text(
         ctx, q.message.chat_id, q.message.message_id,
-        f"Pro obuna tariflarini tanlang:\n\n"
-        f"1 Oy — {int(price_1m):,} som\n"
-        f"3 Oy — {int(price_3m):,} som\n"
-        f"1 Yil — {int(price_1y):,} som",
-        parse_mode=H, reply_markup=kb.plan_kb()
+        text, parse_mode=H, reply_markup=kb.plan_kb()
     )
 
 async def cb_pay_card(update: Update, ctx):
@@ -391,20 +390,23 @@ async def cb_pay_card(update: Update, ctx):
     plan = ctx.user_data.get("selected_plan", "1_month")
     plan_info = db.PLANS.get(plan, {"label": "1 Oy", "key": "sub_price_1m"})
     price = db.gs(plan_info["key"]) or "15000"
-    card = db.gs(f"card_{card_type}") or "Sozlanmagan"
+    card = db.gs("card_" + card_type) or "Sozlanmagan"
     owner = db.gs("card_owner") or "Admin"
     names = {"uzcard": "UzCard", "humo": "Humo", "visa": "Visa/MasterCard"}
     ctx.user_data["pay_card"] = card_type
+
+    text = (
+        names.get(card_type, "") + " orqali tolov\n\n"
+        "Tarif: <b>" + plan_info['label'] + "</b>\n"
+        "Summa: <b>" + "{:,}".format(int(price)) + " som</b>\n\n"
+        "Karta: <code>" + card + "</code>\n"
+        "Egasi: <b>" + owner + "</b>\n\n"
+        "1. Kartaga pul otkazing\n"
+        "2. Chek rasmini yuboring"
+    )
     await safe_edit_message_text(
         ctx, q.message.chat_id, q.message.message_id,
-        f"{names.get(card_type, '')} orqali tolov\n\n"
-        f"Tarif: <b>{plan_info['label']}</b>\n"
-        f"Summa: <b>{int(price):,} som</b>\n\n"
-        f"Karta: <code>{card}</code>\n"
-        f"Egasi: <b>{owner}</b>\n\n"
-        f"1. Kartaga pul otkazing\n"
-        f"2. Chek rasmini yuboring",
-        parse_mode=H, reply_markup=kb.back_kb("back_to_plans")
+        text, parse_mode=H, reply_markup=kb.back_kb("back_to_plans")
     )
     return S_PAY
 
@@ -432,14 +434,14 @@ async def rcv_screenshot(update: Update, ctx):
     names = {"uzcard": "UzCard", "humo": "Humo", "visa": "Visa/MasterCard"}
     uname = u.username if u.username else "yoq"
     caption = (
-        f"Yangi tolov!\n\n"
-        f"Foydalanuvchi: <a href='tg://user?id={u.id}'>{u.first_name}</a>\n"
-        f"ID: <code>{u.id}</code>\n"
-        f"Username: @{uname}\n"
-        f"Tarif: <b>{plan_info['label']}</b>\n"
-        f"Summa: <b>{price:,} som</b>\n"
-        f"Karta: {names.get(card_type, card_type)}\n"
-        f"Raqam: {pay_id}"
+        "Yangi tolov!\n\n"
+        "Foydalanuvchi: <a href='tg://user?id=" + str(u.id) + "'>" + u.first_name + "</a>\n"
+        "ID: <code>" + str(u.id) + "</code>\n"
+        "Username: @" + uname + "\n"
+        "Tarif: <b>" + plan_info['label'] + "</b>\n"
+        "Summa: <b>" + "{:,}".format(price) + " som</b>\n"
+        "Karta: " + names.get(card_type, card_type) + "\n"
+        "Raqam: " + str(pay_id)
     )
     await send_to_admins(ctx, photo=fid, caption=caption,
                          markup=kb.pay_confirm_kb(pay_id))
@@ -449,7 +451,8 @@ async def rcv_screenshot(update: Update, ctx):
 async def cb_pay_ok(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    if not db.is_admin(q.from_user.id): return
+    if not db.is_admin(q.from_user.id):
+        return
     pay_id = int(q.data.replace("pok_", ""))
     pay = db.get_payment(pay_id)
     if not pay or pay["status"] != "pending":
@@ -461,20 +464,22 @@ async def cb_pay_ok(update: Update, ctx):
     plan_info = db.PLANS.get(plan, {"label": "1 Oy"})
     await safe_edit_message_caption(
         ctx, q.message.chat_id, q.message.message_id,
-        f"✅ TASDIQLANDI\n\n{q.message.caption}", parse_mode=H
+        "✅ TASDIQLANDI\n\n" + (q.message.caption or ""), parse_mode=H
     )
     try:
         await ctx.bot.send_message(
             pay["user_id"],
-            f"✅ Tolovingiz tasdiqlandi!\n{plan_info['label']} Pro obuna faollashtirildi!",
+            "✅ Tolovingiz tasdiqlandi!\n" + plan_info['label'] + " Pro obuna faollashtirildi!",
             reply_markup=kb.user_kb()
         )
-    except Exception: pass
+    except Exception:
+        pass
 
 async def cb_pay_no(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    if not db.is_admin(q.from_user.id): return
+    if not db.is_admin(q.from_user.id):
+        return
     pay_id = int(q.data.replace("pno_", ""))
     pay = db.get_payment(pay_id)
     if not pay or pay["status"] != "pending":
@@ -483,7 +488,7 @@ async def cb_pay_no(update: Update, ctx):
     db.resolve_payment(pay_id, "rejected")
     await safe_edit_message_caption(
         ctx, q.message.chat_id, q.message.message_id,
-        f"❌ BEKOR QILINDI\n\n{q.message.caption}", parse_mode=H
+        "❌ BEKOR QILINDI\n\n" + (q.message.caption or ""), parse_mode=H
     )
     try:
         await ctx.bot.send_message(
@@ -491,41 +496,44 @@ async def cb_pay_no(update: Update, ctx):
             "❌ Tolovingiz tasdiqlanmadi. Qayta urinib koring.",
             reply_markup=kb.user_kb()
         )
-    except Exception: pass
+    except Exception:
+        pass
 
 # ═══════════════════════════════
 # ADMIN — STATISTIKA
 # ═══════════════════════════════
 
 async def msg_stats(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id): return
+    if not db.is_admin(update.effective_user.id):
+        return
     s = db.user_stats()
-    await update.message.reply_text(
-        f"📊 <b>Bot statistikasi</b>\n\n"
-        f"Yangi foydalanuvchilar:\n"
-        f"• Bugun: +{s['today']} ta\n"
-        f"• 7 kun: +{s['week']} ta\n"
-        f"• 30 kun: +{s['month']} ta\n\n"
-        f"Faollik:\n"
-        f"• 24 soat: {s['act24']} ta\n"
-        f"• 7 kun: {s['act7']} ta\n"
-        f"• 30 kun: {s['act30']} ta\n\n"
-        f"Jami foydalanuvchilar: <b>{s['total']} ta</b>\n"
-        f"Premium obunachillar: <b>{s['premium']} ta</b>\n"
-        f"Jami referrallar: <b>{s['referrals']} ta</b>\n\n"
-        f"Kinolar: <b>{s['total_movies']} ta</b>\n"
-        f"Pro kinolar: <b>{s['pro_movies']} ta</b>\n\n"
-        f"Kutilayotgan tolovlar: <b>{s['pending']} ta</b>\n"
-        f"Tasdiqlangan tolovlar: <b>{s['approved']} ta</b>",
-        parse_mode=H
+    text = (
+        "📊 <b>Bot statistikasi</b>\n\n"
+        "Yangi foydalanuvchilar:\n"
+        "• Bugun: +" + str(s['today']) + " ta\n"
+        "• 7 kun: +" + str(s['week']) + " ta\n"
+        "• 30 kun: +" + str(s['month']) + " ta\n\n"
+        "Faollik:\n"
+        "• 24 soat: " + str(s['act24']) + " ta\n"
+        "• 7 kun: " + str(s['act7']) + " ta\n"
+        "• 30 kun: " + str(s['act30']) + " ta\n\n"
+        "Jami foydalanuvchilar: <b>" + str(s['total']) + " ta</b>\n"
+        "Premium obunachillar: <b>" + str(s['premium']) + " ta</b>\n"
+        "Jami referrallar: <b>" + str(s['referrals']) + " ta</b>\n\n"
+        "Kinolar: <b>" + str(s['total_movies']) + " ta</b>\n"
+        "Pro kinolar: <b>" + str(s['pro_movies']) + " ta</b>\n\n"
+        "Kutilayotgan tolovlar: <b>" + str(s['pending']) + " ta</b>\n"
+        "Tasdiqlangan tolovlar: <b>" + str(s['approved']) + " ta</b>"
     )
+    await update.message.reply_text(text, parse_mode=H)
 
 # ═══════════════════════════════
 # ADMIN — KINOLAR
 # ═══════════════════════════════
 
 async def msg_movies(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id): return
+    if not db.is_admin(update.effective_user.id):
+        return
     await update.message.reply_text(
         "🎬 <b>Kinolar boshqaruvi</b>\n\n"
         "Quyidagi tugmalar orqali kinolarni boshqaring:",
@@ -553,16 +561,15 @@ async def st_mv_code(update: Update, ctx):
     code = update.message.text.strip()
     existing = db.get_movie(code)
     if existing:
+        title = existing.get('title', "Noma'lum")
         await update.message.reply_text(
-            f"⚠️ {code} kodi mavjud!\n"
-            f"Sarlavha: {existing.get('title', 'Noma\'lum')}\n\n"
-            f"Yangi Message ID yuboring:"
+            code + " kodi mavjud!\nSarlavha: " + title + "\n\nYangi Message ID yuboring:"
         )
     else:
         await update.message.reply_text(
-            f"✅ Kod: <b>{code}</b>\n\n"
-            f"Endi Message ID yuboring:\n"
-            f"Kanalda postga ong klik - Copy Link - oxiridagi raqam",
+            "✅ Kod: <b>" + code + "</b>\n\n"
+            "Endi Message ID yuboring:\n"
+            "Kanalda postga ong klik - Copy Link - oxiridagi raqam",
             parse_mode=H
         )
     ctx.user_data["mv_code"] = code
@@ -585,7 +592,7 @@ async def st_mv_title(update: Update, ctx):
     code = ctx.user_data["mv_code"]
     msgid = ctx.user_data["mv_msgid"]
     db.save_movie(code, msgid, title)
-    
+
     ch = get_movie_ch()
     test_text = ""
     if ch:
@@ -596,18 +603,18 @@ async def st_mv_title(update: Update, ctx):
             )
             test_text = "\n\n✅ Test ko'rinishi yuqorida yuborildi!"
         except Exception as e:
-            test_text = f"\n\n⚠️ Test xato: {e}"
-    
+            test_text = "\n\n⚠️ Test xato: " + str(e)
+
+    title_display = title if title else "—"
     await update.message.reply_text(
-        f"✅ Kino qo'shildi!\n\n"
-        f"📌 Kod: <code>{code}</code>\n"
-        f"📝 Sarlavha: {title or '—'}{test_text}",
+        "✅ Kino qo'shildi!\n\n"
+        "📌 Kod: <code>" + code + "</code>\n"
+        "📝 Sarlavha: " + title_display + test_text,
         parse_mode=H, reply_markup=kb.movies_kb()
     )
     ctx.user_data.clear()
     return END
 
-# PRO boshqaruv
 async def cb_mv_pro(update: Update, ctx):
     q = update.callback_query
     await q.answer()
@@ -639,12 +646,12 @@ async def st_pro_set(update: Update, ctx):
     code = update.message.text.strip()
     movie = db.get_movie(code)
     if not movie:
-        await update.message.reply_text(f"❌ {code} topilmadi! Qayta urinib ko'ring:")
+        await update.message.reply_text("❌ " + code + " topilmadi! Qayta urinib ko'ring:")
         return S_PRO_SET
     db.set_movie_pro(code, True)
     await update.message.reply_text(
-        f"✅ <code>{code}</code> — Pro qilindi!\n"
-        f"Endi bu kino faqat obunachilarga ko'rinadi.",
+        "✅ <code>" + code + "</code> — Pro qilindi!\n"
+        "Endi bu kino faqat obunachilarga ko'rinadi.",
         parse_mode=H, reply_markup=kb.movies_kb()
     )
     return END
@@ -669,12 +676,12 @@ async def st_pro_unset(update: Update, ctx):
     code = update.message.text.strip()
     movie = db.get_movie(code)
     if not movie:
-        await update.message.reply_text(f"❌ {code} topilmadi! Qayta urinib ko'ring:")
+        await update.message.reply_text("❌ " + code + " topilmadi! Qayta urinib ko'ring:")
         return S_PRO_UNSET
     db.set_movie_pro(code, False)
     await update.message.reply_text(
-        f"✅ <code>{code}</code> — Oddiy qilindi!\n"
-        f"Endi bu kino hammaga ko'rinadi.",
+        "✅ <code>" + code + "</code> — Oddiy qilindi!\n"
+        "Endi bu kino hammaga ko'rinadi.",
         parse_mode=H, reply_markup=kb.movies_kb()
     )
     return END
@@ -699,13 +706,14 @@ async def st_ed_old(update: Update, ctx):
     code = update.message.text.strip()
     m = db.get_movie(code)
     if not m:
-        await update.message.reply_text(f"❌ {code} topilmadi! Qayta urinib ko'ring:")
+        await update.message.reply_text("❌ " + code + " topilmadi! Qayta urinib ko'ring:")
         return S_ED_OLD
     ctx.user_data["ed_old"] = code
+    title_display = m['title'] if m['title'] else code
     await update.message.reply_text(
-        f"✅ Topildi: <b>{m['title'] or code}</b>\n"
-        f"🆔 Message ID: <code>{m['msg_id']}</code>\n\n"
-        f"Yangi kodni yuboring:",
+        "✅ Topildi: <b>" + title_display + "</b>\n"
+        "🆔 Message ID: <code>" + str(m['msg_id']) + "</code>\n\n"
+        "Yangi kodni yuboring:",
         parse_mode=H
     )
     return S_ED_CODE
@@ -730,10 +738,7 @@ async def st_ed_title(update: Update, ctx):
         ctx.user_data["ed_old"], ctx.user_data["ed_code"],
         ctx.user_data["ed_msgid"], title
     )
-    await update.message.reply_text(
-        "✅ Kino yangilandi!",
-        reply_markup=kb.movies_kb()
-    )
+    await update.message.reply_text("✅ Kino yangilandi!", reply_markup=kb.movies_kb())
     ctx.user_data.clear()
     return END
 
@@ -757,12 +762,12 @@ async def st_del(update: Update, ctx):
     code = update.message.text.strip()
     if db.del_movie(code):
         await update.message.reply_text(
-            f"✅ <b>{code}</b> o'chirildi!",
+            "✅ <b>" + code + "</b> o'chirildi!",
             parse_mode=H, reply_markup=kb.movies_kb()
         )
         return END
     else:
-        await update.message.reply_text(f"❌ {code} topilmadi! Qayta urinib ko'ring:")
+        await update.message.reply_text("❌ " + code + " topilmadi! Qayta urinib ko'ring:")
         return S_DEL
 
 async def cb_mv_list(update: Update, ctx):
@@ -776,17 +781,17 @@ async def cb_mv_list(update: Update, ctx):
             reply_markup=kb.movies_kb()
         )
         return
-    
+
     text = "📋 <b>Kinolar ro'yxati</b>\n\n"
     for m in movies:
         pro = " 💎" if m.get("is_pro") else ""
         views = m.get('views', 0)
-        text += f"• <code>{m['code']}</code>{pro} - {m['title'] or '—'} ({views} ko'rish)\n"
-    
-    # Agar xabar uzun bo'lsa, qisqartirish
+        title = m['title'] if m['title'] else "—"
+        text += "• <code>" + m['code'] + "</code>" + pro + " - " + title + " (" + str(views) + " ko'rish)\n"
+
     if len(text) > 4000:
         text = text[:4000] + "\n\n... va boshqalar"
-    
+
     await safe_edit_message_text(
         ctx, q.message.chat_id, q.message.message_id,
         text, parse_mode=H,
@@ -810,11 +815,11 @@ async def cb_mv_back(update: Update, ctx):
 # ═══════════════════════════════
 
 async def msg_channels(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id): return
+    if not db.is_admin(update.effective_user.id):
+        return
     chs = db.get_channels()
     await update.message.reply_text(
-        f"🔒 <b>Majburiy obuna kanallari</b>\n\n"
-        f"Hozirda: <b>{len(chs)} ta</b> kanal",
+        "🔒 <b>Majburiy obuna kanallari</b>\n\nHozirda: <b>" + str(len(chs)) + " ta</b> kanal",
         parse_mode=H, reply_markup=kb.channels_kb()
     )
 
@@ -913,23 +918,22 @@ async def st_ch_title(update: Update, ctx):
     ctx.user_data["ch_title"] = update.message.text.strip()
     ch_type = ctx.user_data.get(CH_TYPE_KEY, "telegram")
     ch_id = ctx.user_data.get("ch_id", "")
-    
+
     if ctx.user_data.get("waiting_link_title"):
         await update.message.reply_text(
             "Havolani kiriting:\nMasalan: https://t.me/mykanal"
         )
         return S_CH_LINK
-    
+
     if ch_type == "telegram" and ch_id.startswith("@"):
         auto_link = "https://t.me/" + ch_id[1:]
     else:
         auto_link = ""
-    
+
     ctx.user_data["ch_auto_link"] = auto_link
     if auto_link:
         await update.message.reply_text(
-            f"Havola: {auto_link}\n"
-            f"O'zgartirmasangiz - yuboring:"
+            "Havola: " + auto_link + "\nO'zgartirmasangiz - yuboring:"
         )
     else:
         await update.message.reply_text("Kanal havolasini kiriting:")
@@ -941,15 +945,15 @@ async def st_ch_link(update: Update, ctx):
     ch_id = ctx.user_data.get("ch_id", "")
     title = ctx.user_data.get("ch_title", "Kanal")
     ch_type = ctx.user_data.get(CH_TYPE_KEY, "telegram")
-    
+
     db.add_channel(ch_id, title, link, ch_type)
-    
+
     type_names = {"telegram": "Telegram kanal", "private": "Shaxsiy havola", "link": "Oddiy havola"}
     await update.message.reply_text(
-        f"✅ Kanal qo'shildi!\n\n"
-        f"📌 Tur: {type_names.get(ch_type)}\n"
-        f"📝 Nom: {title}\n"
-        f"🔗 Havola: {link}",
+        "✅ Kanal qo'shildi!\n\n"
+        "📌 Tur: " + type_names.get(ch_type, ch_type) + "\n"
+        "📝 Nom: " + title + "\n"
+        "🔗 Havola: " + link,
         parse_mode=H,
         reply_markup=kb.channels_kb()
     )
@@ -967,17 +971,17 @@ async def cb_ch_list(update: Update, ctx):
             reply_markup=kb.channels_kb()
         )
         return
-    
+
     text = "🔒 <b>Majburiy obuna kanallari</b>\n\n"
     for i, c in enumerate(chs, 1):
         icons = {"telegram": "📢", "private": "🔒", "link": "🌐"}
         icon = icons.get(c.get("type", "telegram"), "📢")
-        text += f"{i}. {icon} <b>{c['title']}</b>\n"
-        text += f"   🆔 ID: {c['channel_id']}\n"
+        text += str(i) + ". " + icon + " <b>" + c['title'] + "</b>\n"
+        text += "   🆔 ID: " + str(c['channel_id']) + "\n"
         if c.get('link'):
-            text += f"   🔗 Havola: {c['link']}\n"
+            text += "   🔗 Havola: " + c['link'] + "\n"
         text += "\n"
-    
+
     await safe_edit_message_text(
         ctx, q.message.chat_id, q.message.message_id,
         text, parse_mode=H,
@@ -995,7 +999,7 @@ async def cb_ch_del(update: Update, ctx):
             reply_markup=kb.channels_kb()
         )
         return
-    
+
     await safe_edit_message_text(
         ctx, q.message.chat_id, q.message.message_id,
         "🗑️ <b>Kanal o'chirish</b>\n\n"
@@ -1007,7 +1011,8 @@ async def cb_ch_del(update: Update, ctx):
 async def cb_dch(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    if not db.is_admin(q.from_user.id): return
+    if not db.is_admin(q.from_user.id):
+        return
     ch_id = int(q.data.replace("dch_", ""))
     if db.del_channel(ch_id):
         await q.answer("✅ Kanal o'chirildi!", show_alert=True)
@@ -1035,14 +1040,14 @@ async def cb_ch_back(update: Update, ctx):
     chs = db.get_channels()
     await safe_edit_message_text(
         ctx, q.message.chat_id, q.message.message_id,
-        f"🔒 <b>Majburiy obuna kanallari</b>\n\n"
-        f"Hozirda: <b>{len(chs)} ta</b> kanal",
+        "🔒 <b>Majburiy obuna kanallari</b>\n\nHozirda: <b>" + str(len(chs)) + " ta</b> kanal",
         parse_mode=H,
         reply_markup=kb.channels_kb()
     )
 
 async def cmd_delch(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id): return
+    if not db.is_admin(update.effective_user.id):
+        return
     if not ctx.args or not ctx.args[0].isdigit():
         await update.message.reply_text("Format: /delch <kanal_id>")
         return
@@ -1056,12 +1061,12 @@ async def cmd_delch(update: Update, ctx):
 # ═══════════════════════════════
 
 async def msg_admins(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id): return
+    if not db.is_admin(update.effective_user.id):
+        return
     admins = db.get_admins()
     total = len(ADMIN_IDS) + len(admins)
     await update.message.reply_text(
-        f"👮 <b>Adminlar boshqaruvi</b>\n\n"
-        f"Jami adminlar: <b>{total} ta</b>",
+        "👮 <b>Adminlar boshqaruvi</b>\n\nJami adminlar: <b>" + str(total) + " ta</b>",
         parse_mode=H, reply_markup=kb.admins_kb()
     )
 
@@ -1093,14 +1098,15 @@ async def st_adm_add(update: Update, ctx):
     if uid in ADMIN_IDS:
         await update.message.reply_text("⚠️ Bu asosiy admin!")
         return END
-    if db.add_admin(uid, f"Admin {uid}"):
+    if db.add_admin(uid, "Admin " + str(uid)):
         await update.message.reply_text(
-            f"✅ <code>{uid}</code> admin qo'shildi!",
+            "✅ <code>" + str(uid) + "</code> admin qo'shildi!",
             parse_mode=H, reply_markup=kb.admins_kb()
         )
         try:
             await ctx.bot.send_message(uid, "✅ Siz admin qilib tayinlandingiz!")
-        except Exception: pass
+        except Exception:
+            pass
     else:
         await update.message.reply_text("❌ Xatolik yuz berdi!")
     return END
@@ -1132,7 +1138,7 @@ async def st_adm_del(update: Update, ctx):
         return END
     if db.del_admin(uid):
         await update.message.reply_text(
-            f"✅ <code>{uid}</code> o'chirildi!",
+            "✅ <code>" + str(uid) + "</code> o'chirildi!",
             parse_mode=H, reply_markup=kb.admins_kb()
         )
     else:
@@ -1143,11 +1149,12 @@ async def cb_adm_list(update: Update, ctx):
     q = update.callback_query
     await q.answer()
     total = len(ADMIN_IDS) + len(db.get_admins())
+    main_admins = ", ".join(map(str, ADMIN_IDS))
     await safe_edit_message_text(
         ctx, q.message.chat_id, q.message.message_id,
-        f"👮 <b>Adminlar ro'yxati</b>\n\n"
-        f"Jami: <b>{total} ta</b> admin\n\n"
-        f"👑 Asosiy adminlar: {', '.join(map(str, ADMIN_IDS))}",
+        "👮 <b>Adminlar ro'yxati</b>\n\n"
+        "Jami: <b>" + str(total) + " ta</b> admin\n\n"
+        "👑 Asosiy adminlar: " + main_admins,
         parse_mode=H, reply_markup=kb.admins_kb()
     )
 
@@ -1156,12 +1163,13 @@ async def cb_adm_list(update: Update, ctx):
 # ═══════════════════════════════
 
 async def msg_broadcast(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id): return
+    if not db.is_admin(update.effective_user.id):
+        return
     count = len(db.all_user_ids())
     await update.message.reply_text(
-        f"📨 <b>Xabar yuborish</b>\n\n"
-        f"Jami foydalanuvchilar: <b>{count} ta</b>\n\n"
-        f"Xabar turini tanlang:",
+        "📨 <b>Xabar yuborish</b>\n\n"
+        "Jami foydalanuvchilar: <b>" + str(count) + " ta</b>\n\n"
+        "Xabar turini tanlang:",
         parse_mode=H, reply_markup=kb.broadcast_kb()
     )
 
@@ -1201,8 +1209,9 @@ async def st_bc_text(update: Update, ctx):
     text = update.message.text
     users = db.all_user_ids()
     sent = failed = 0
-    msg = await update.message.reply_text(f"📤 Yuborilmoqda: 0/{len(users)}")
-    
+    total = len(users)
+    msg = await update.message.reply_text("📤 Yuborilmoqda: 0/" + str(total))
+
     for i, uid in enumerate(users):
         try:
             await ctx.bot.send_message(uid, text, parse_mode=H)
@@ -1210,19 +1219,20 @@ async def st_bc_text(update: Update, ctx):
         except Exception:
             failed += 1
         if (i + 1) % 30 == 0:
-            try: 
+            try:
                 await safe_edit_message_text(
                     ctx, msg.chat_id, msg.message_id,
-                    f"📤 Yuborilmoqda: {i+1}/{len(users)}"
+                    "📤 Yuborilmoqda: " + str(i + 1) + "/" + str(total)
                 )
-            except Exception: pass
+            except Exception:
+                pass
         await asyncio.sleep(0.04)
-    
+
     await safe_edit_message_text(
         ctx, msg.chat_id, msg.message_id,
-        f"✅ Broadcast tugadi!\n\n"
-        f"✅ Yuborildi: {sent}\n"
-        f"❌ Xatolik: {failed}",
+        "✅ Broadcast tugadi!\n\n"
+        "✅ Yuborildi: " + str(sent) + "\n"
+        "❌ Xatolik: " + str(failed),
         reply_markup=kb.admin_kb()
     )
     return END
@@ -1230,8 +1240,9 @@ async def st_bc_text(update: Update, ctx):
 async def st_bc_fwd(update: Update, ctx):
     users = db.all_user_ids()
     sent = failed = 0
-    msg = await update.message.reply_text(f"🔄 Forward: 0/{len(users)}")
-    
+    total = len(users)
+    msg = await update.message.reply_text("🔄 Forward: 0/" + str(total))
+
     for i, uid in enumerate(users):
         try:
             await update.message.forward(uid)
@@ -1239,19 +1250,20 @@ async def st_bc_fwd(update: Update, ctx):
         except Exception:
             failed += 1
         if (i + 1) % 30 == 0:
-            try: 
+            try:
                 await safe_edit_message_text(
                     ctx, msg.chat_id, msg.message_id,
-                    f"🔄 Forward: {i+1}/{len(users)}"
+                    "🔄 Forward: " + str(i + 1) + "/" + str(total)
                 )
-            except Exception: pass
+            except Exception:
+                pass
         await asyncio.sleep(0.04)
-    
+
     await safe_edit_message_text(
         ctx, msg.chat_id, msg.message_id,
-        f"✅ Forward tugadi!\n\n"
-        f"✅ Yuborildi: {sent}\n"
-        f"❌ Xatolik: {failed}",
+        "✅ Forward tugadi!\n\n"
+        "✅ Yuborildi: " + str(sent) + "\n"
+        "❌ Xatolik: " + str(failed),
         reply_markup=kb.admin_kb()
     )
     return END
@@ -1261,37 +1273,41 @@ async def st_bc_fwd(update: Update, ctx):
 # ═══════════════════════════════
 
 async def msg_settings(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id): return
+    if not db.is_admin(update.effective_user.id):
+        return
     price_1m = db.gs("sub_price_1m") or "15000"
     price_3m = db.gs("sub_price_3m") or "40000"
     price_1y = db.gs("sub_price_1y") or "120000"
-    movch    = db.gs("movie_ch")  or MOVIE_CH or "Sozlanmagan"
+    movch    = db.gs("movie_ch") or MOVIE_CH or "Sozlanmagan"
     uzcard   = db.gs("card_uzcard") or "Sozlanmagan"
-    humo     = db.gs("card_humo")   or "Sozlanmagan"
-    visa     = db.gs("card_visa")   or "Sozlanmagan"
-    owner    = db.gs("card_owner")  or "Sozlanmagan"
+    humo     = db.gs("card_humo") or "Sozlanmagan"
+    visa     = db.gs("card_visa") or "Sozlanmagan"
+    owner    = db.gs("card_owner") or "Sozlanmagan"
     refbonus = db.gs("referral_bonus") or "5"
     welcome  = db.gs("welcome_text") or "Kino kodini yuboring"
-    
-    await update.message.reply_text(
-        f"⚙️ <b>Bot sozlamalari</b>\n\n"
-        f"💰 <b>Obuna narxlari:</b>\n"
-        f"📅 1 Oy: {int(price_1m):,} som\n"
-        f"📅 3 Oy: {int(price_3m):,} som\n"
-        f"📅 1 Yil: {int(price_1y):,} som\n\n"
-        f"🎬 <b>Kino kanali:</b>\n"
-        f"<code>{movch}</code>\n\n"
-        f"💳 <b>To'lov kartalari:</b>\n"
-        f"UzCard: <code>{uzcard}</code>\n"
-        f"Humo: <code>{humo}</code>\n"
-        f"Visa: <code>{visa}</code>\n"
-        f"Egasi: {owner}\n\n"
-        f"👥 <b>Referral sozlamalari:</b>\n"
-        f"Har {refbonus} ta referral = 1 oy premium\n\n"
-        f"📝 <b>Xush kelibsiz xabari:</b>\n"
-        f"{welcome[:50]}...",
-        parse_mode=H, reply_markup=kb.settings_kb()
+
+    # ✅ f-string TASHQARISIDA qisqartirish — SyntaxError fix
+    welcome_short = welcome[:50]
+
+    text = (
+        "⚙️ <b>Bot sozlamalari</b>\n\n"
+        "💰 <b>Obuna narxlari:</b>\n"
+        "📅 1 Oy: " + "{:,}".format(int(price_1m)) + " som\n"
+        "📅 3 Oy: " + "{:,}".format(int(price_3m)) + " som\n"
+        "📅 1 Yil: " + "{:,}".format(int(price_1y)) + " som\n\n"
+        "🎬 <b>Kino kanali:</b>\n"
+        "<code>" + movch + "</code>\n\n"
+        "💳 <b>To'lov kartalari:</b>\n"
+        "UzCard: <code>" + uzcard + "</code>\n"
+        "Humo: <code>" + humo + "</code>\n"
+        "Visa: <code>" + visa + "</code>\n"
+        "Egasi: " + owner + "\n\n"
+        "👥 <b>Referral sozlamalari:</b>\n"
+        "Har " + refbonus + " ta referral = 1 oy premium\n\n"
+        "📝 <b>Xush kelibsiz xabari:</b>\n" +
+        welcome_short + "..."
     )
+    await update.message.reply_text(text, parse_mode=H, reply_markup=kb.settings_kb())
 
 async def cb_st_cards(update: Update, ctx):
     q = update.callback_query
@@ -1310,25 +1326,23 @@ async def cb_sc_card(update: Update, ctx):
     ctx.user_data["st_key"] = "card_" + key
     names = {"uzcard": "UzCard raqami", "humo": "Humo raqami",
              "visa": "Visa raqami", "owner": "Karta egasi ismi"}
+    name = names.get(key, key)
     await safe_edit_message_text(
         ctx, q.message.chat_id, q.message.message_id,
-        f"✏️ <b>{names.get(key, key)}</b>\n\n"
-        f"Yangi qiymatni yuboring:\n\n"
-        f"Bekor: /cancel",
+        "✏️ <b>" + name + "</b>\n\n"
+        "Yangi qiymatni yuboring:\n\n"
+        "Bekor: /cancel",
         parse_mode=H
     )
     await ctx.bot.send_message(
         q.from_user.id,
-        f"Yangi {names.get(key, key)} ni yuboring:\n\nBekor: /cancel"
+        "Yangi " + name + " ni yuboring:\n\nBekor: /cancel"
     )
     return S_ST_CARD
 
 async def st_save_card(update: Update, ctx):
     db.ss(ctx.user_data["st_key"], update.message.text.strip())
-    await update.message.reply_text(
-        "✅ Saqlandi!",
-        reply_markup=kb.settings_kb()
-    )
+    await update.message.reply_text("✅ Saqlandi!", reply_markup=kb.settings_kb())
     ctx.user_data.clear()
     return END
 
@@ -1348,14 +1362,16 @@ async def cb_st_prices(update: Update, ctx):
     price_1m = db.gs("sub_price_1m") or "15000"
     price_3m = db.gs("sub_price_3m") or "40000"
     price_1y = db.gs("sub_price_1y") or "120000"
+    text = (
+        "💰 <b>Obuna narxlari</b>\n\n"
+        "📅 1 Oy: " + "{:,}".format(int(price_1m)) + " som\n"
+        "📅 3 Oy: " + "{:,}".format(int(price_3m)) + " som\n"
+        "📅 1 Yil: " + "{:,}".format(int(price_1y)) + " som\n\n"
+        "Qaysi narxni o'zgartirmoqchisiz?"
+    )
     await safe_edit_message_text(
         ctx, q.message.chat_id, q.message.message_id,
-        f"💰 <b>Obuna narxlari</b>\n\n"
-        f"📅 1 Oy: {int(price_1m):,} som\n"
-        f"📅 3 Oy: {int(price_3m):,} som\n"
-        f"📅 1 Yil: {int(price_1y):,} som\n\n"
-        f"Qaysi narxni o'zgartirmoqchisiz?",
-        parse_mode=H, reply_markup=kb.prices_kb()
+        text, parse_mode=H, reply_markup=kb.prices_kb()
     )
 
 async def cb_sp(update: Update, ctx):
@@ -1366,17 +1382,18 @@ async def cb_sp(update: Update, ctx):
     plan_info = db.PLANS.get(plan, {"label": "1 Oy"})
     key = "sub_price_" + plan.replace("_month", "m").replace("_year", "y")
     current = db.gs(key) or "15000"
+    label = plan_info['label']
     await safe_edit_message_text(
         ctx, q.message.chat_id, q.message.message_id,
-        f"✏️ <b>{plan_info['label']} narxi</b>\n\n"
-        f"Hozirgi: {int(current):,} som\n\n"
-        f"Yangi narx yuboring:\n\n"
-        f"Bekor: /cancel",
+        "✏️ <b>" + label + " narxi</b>\n\n"
+        "Hozirgi: " + "{:,}".format(int(current)) + " som\n\n"
+        "Yangi narx yuboring:\n\n"
+        "Bekor: /cancel",
         parse_mode=H
     )
     await ctx.bot.send_message(
         q.from_user.id,
-        f"{plan_info['label']} uchun yangi narx yuboring:\n\nBekor: /cancel"
+        label + " uchun yangi narx yuboring:\n\nBekor: /cancel"
     )
     return S_ST_PRICE
 
@@ -1389,7 +1406,7 @@ async def st_save_price(update: Update, ctx):
     key = "sub_price_" + plan.replace("_month", "m").replace("_year", "y")
     db.ss(key, t)
     await update.message.reply_text(
-        f"✅ Narx {int(t):,} som saqlandi!",
+        "✅ Narx " + "{:,}".format(int(t)) + " som saqlandi!",
         reply_markup=kb.settings_kb()
     )
     ctx.user_data.clear()
@@ -1401,26 +1418,23 @@ async def cb_st_movch(update: Update, ctx):
     cur = db.gs("movie_ch") or MOVIE_CH or "Sozlanmagan"
     await safe_edit_message_text(
         ctx, q.message.chat_id, q.message.message_id,
-        f"🎬 <b>Kino kanali</b>\n\n"
-        f"Hozirgi: <code>{cur}</code>\n\n"
-        f"Yangi kino kanal ID yuboring:\n\n"
-        f"ID olish: @JsonDumpBot ga forward qiling\n\n"
-        f"Bekor: /cancel",
+        "🎬 <b>Kino kanali</b>\n\n"
+        "Hozirgi: <code>" + str(cur) + "</code>\n\n"
+        "Yangi kino kanal ID yuboring:\n\n"
+        "ID olish: @JsonDumpBot ga forward qiling\n\n"
+        "Bekor: /cancel",
         parse_mode=H
     )
     await ctx.bot.send_message(
         q.from_user.id,
-        f"Yangi kino kanal ID yuboring:\n\n"
-        f"@JsonDumpBot ga forward qiling\n\nBekor: /cancel"
+        "Yangi kino kanal ID yuboring:\n\n"
+        "@JsonDumpBot ga forward qiling\n\nBekor: /cancel"
     )
     return S_ST_MOVCH
 
 async def st_save_movch(update: Update, ctx):
     db.ss("movie_ch", update.message.text.strip())
-    await update.message.reply_text(
-        "✅ Kino kanal saqlandi!",
-        reply_markup=kb.settings_kb()
-    )
+    await update.message.reply_text("✅ Kino kanal saqlandi!", reply_markup=kb.settings_kb())
     return END
 
 async def cb_st_welcome(update: Update, ctx):
@@ -1429,24 +1443,21 @@ async def cb_st_welcome(update: Update, ctx):
     cur = db.gs("welcome_text") or "—"
     await safe_edit_message_text(
         ctx, q.message.chat_id, q.message.message_id,
-        f"📝 <b>Xush kelibsiz xabari</b>\n\n"
-        f"Hozirgi:\n<i>{cur}</i>\n\n"
-        f"Yangi matnni yuboring:\n\n"
-        f"Bekor: /cancel",
+        "📝 <b>Xush kelibsiz xabari</b>\n\n"
+        "Hozirgi:\n<i>" + cur + "</i>\n\n"
+        "Yangi matnni yuboring:\n\n"
+        "Bekor: /cancel",
         parse_mode=H
     )
     await ctx.bot.send_message(
         q.from_user.id,
-        f"Yangi xush kelibsiz xabarini yuboring:\n\nBekor: /cancel"
+        "Yangi xush kelibsiz xabarini yuboring:\n\nBekor: /cancel"
     )
     return S_ST_WELCOME
 
 async def st_save_welcome(update: Update, ctx):
     db.ss("welcome_text", update.message.text.strip())
-    await update.message.reply_text(
-        "✅ Saqlandi!",
-        reply_markup=kb.settings_kb()
-    )
+    await update.message.reply_text("✅ Saqlandi!", reply_markup=kb.settings_kb())
     return END
 
 async def cb_st_refbonus(update: Update, ctx):
@@ -1455,15 +1466,15 @@ async def cb_st_refbonus(update: Update, ctx):
     cur = db.gs("referral_bonus") or "5"
     await safe_edit_message_text(
         ctx, q.message.chat_id, q.message.message_id,
-        f"👥 <b>Referral bonus sozlamasi</b>\n\n"
-        f"Hozirgi: har <b>{cur}</b> ta referral = 1 oy premium\n\n"
-        f"Yangi sonni yuboring:\n\n"
-        f"Bekor: /cancel",
+        "👥 <b>Referral bonus sozlamasi</b>\n\n"
+        "Hozirgi: har <b>" + cur + "</b> ta referral = 1 oy premium\n\n"
+        "Yangi sonni yuboring:\n\n"
+        "Bekor: /cancel",
         parse_mode=H
     )
     await ctx.bot.send_message(
         q.from_user.id,
-        f"Yangi referral bonus sonini yuboring:\n\nBekor: /cancel"
+        "Yangi referral bonus sonini yuboring:\n\nBekor: /cancel"
     )
     return S_ST_REFBONUS
 
@@ -1474,14 +1485,18 @@ async def st_save_refbonus(update: Update, ctx):
         return S_ST_REFBONUS
     db.ss("referral_bonus", t)
     await update.message.reply_text(
-        f"✅ Har {t} ta referral = 1 oy premium saqlandi!",
+        "✅ Har " + t + " ta referral = 1 oy premium saqlandi!",
         reply_markup=kb.settings_kb()
     )
     return END
 
-# Admin tomonidan qolda premium berish
+# ═══════════════════════════════
+# ADMIN — PREMIUM BERISH
+# ═══════════════════════════════
+
 async def cmd_give(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id): return
+    if not db.is_admin(update.effective_user.id):
+        return
     if len(ctx.args) < 2:
         await update.message.reply_text(
             "📝 <b>Premium berish formati:</b>\n\n"
@@ -1501,20 +1516,22 @@ async def cmd_give(update: Update, ctx):
             return
         db.give_sub(uid, plan)
         plan_info = db.PLANS[plan]
-        await update.message.reply_text(f"✅ {uid} ga {plan_info['label']} premium berildi!")
+        await update.message.reply_text("✅ " + str(uid) + " ga " + plan_info['label'] + " premium berildi!")
         try:
             await ctx.bot.send_message(
-                uid, 
-                f"✅ Admin sizga {plan_info['label']} Pro obuna berdi!\n"
-                f"Endi barcha Pro kinolarni ko'rishingiz mumkin.",
+                uid,
+                "✅ Admin sizga " + plan_info['label'] + " Pro obuna berdi!\n"
+                "Endi barcha Pro kinolarni ko'rishingiz mumkin.",
                 reply_markup=kb.user_kb()
             )
-        except Exception: pass
+        except Exception:
+            pass
     except Exception:
         await update.message.reply_text("❌ Xatolik. Format: /give 123456 1_month")
 
 async def cmd_clear_cache(update: Update, ctx):
-    if not db.is_admin(update.effective_user.id): return
+    if not db.is_admin(update.effective_user.id):
+        return
     ctx.user_data.clear()
     ctx.chat_data.clear()
     await update.message.reply_text("✅ Kesh tozalandi!", reply_markup=kb.admin_kb())
@@ -1618,11 +1635,11 @@ def main():
     # Sozlamalar
     app.add_handler(ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(cb_sc_card,      pattern="^sc_(uzcard|humo|visa|owner)$"),
-            CallbackQueryHandler(cb_sp,            pattern="^sp_(1_month|3_month|1_year)$"),
-            CallbackQueryHandler(cb_st_movch,      pattern="^st_movch$"),
-            CallbackQueryHandler(cb_st_welcome,    pattern="^st_welcome$"),
-            CallbackQueryHandler(cb_st_refbonus,   pattern="^st_refbonus$"),
+            CallbackQueryHandler(cb_sc_card,    pattern="^sc_(uzcard|humo|visa|owner)$"),
+            CallbackQueryHandler(cb_sp,          pattern="^sp_(1_month|3_month|1_year)$"),
+            CallbackQueryHandler(cb_st_movch,    pattern="^st_movch$"),
+            CallbackQueryHandler(cb_st_welcome,  pattern="^st_welcome$"),
+            CallbackQueryHandler(cb_st_refbonus, pattern="^st_refbonus$"),
         ],
         states={
             S_ST_CARD:     [MessageHandler(filters.TEXT & ~filters.COMMAND, st_save_card)],
@@ -1643,25 +1660,25 @@ def main():
     app.add_handler(CommandHandler("clearcache", cmd_clear_cache))
 
     # Callbacks
-    app.add_handler(CallbackQueryHandler(cb_chk_sub,      pattern="^chk_sub$"))
-    app.add_handler(CallbackQueryHandler(cb_buy_sub,      pattern="^buy_sub$"))
-    app.add_handler(CallbackQueryHandler(cb_plan,         pattern="^plan_(1_month|3_month|1_year)$"))
-    app.add_handler(CallbackQueryHandler(cb_back_to_plans,pattern="^back_to_plans$"))
-    app.add_handler(CallbackQueryHandler(cb_pay_ok,       pattern=r"^pok_\d+$"))
-    app.add_handler(CallbackQueryHandler(cb_pay_no,       pattern=r"^pno_\d+$"))
-    app.add_handler(CallbackQueryHandler(cb_mv_list,      pattern="^mv_list$"))
-    app.add_handler(CallbackQueryHandler(cb_mv_back,      pattern="^mv_back$"))
-    app.add_handler(CallbackQueryHandler(cb_mv_pro,       pattern="^mv_pro$"))
-    app.add_handler(CallbackQueryHandler(cb_ch_add,       pattern="^ch_add$"))
-    app.add_handler(CallbackQueryHandler(cb_ch_list,      pattern="^ch_list$"))
-    app.add_handler(CallbackQueryHandler(cb_ch_del,       pattern="^ch_del$"))
-    app.add_handler(CallbackQueryHandler(cb_dch,          pattern=r"^dch_\d+$"))
-    app.add_handler(CallbackQueryHandler(cb_ch_back,      pattern="^ch_back$"))
-    app.add_handler(CallbackQueryHandler(cb_adm_list,     pattern="^adm_list$"))
-    app.add_handler(CallbackQueryHandler(cb_st_cards,     pattern="^st_cards$"))
-    app.add_handler(CallbackQueryHandler(cb_st_prices,    pattern="^st_prices$"))
-    app.add_handler(CallbackQueryHandler(cb_st_back,      pattern="^st_back$"))
-    app.add_handler(CallbackQueryHandler(cb_cancel,       pattern="^x$"))
+    app.add_handler(CallbackQueryHandler(cb_chk_sub,       pattern="^chk_sub$"))
+    app.add_handler(CallbackQueryHandler(cb_buy_sub,        pattern="^buy_sub$"))
+    app.add_handler(CallbackQueryHandler(cb_plan,           pattern="^plan_(1_month|3_month|1_year)$"))
+    app.add_handler(CallbackQueryHandler(cb_back_to_plans,  pattern="^back_to_plans$"))
+    app.add_handler(CallbackQueryHandler(cb_pay_ok,         pattern=r"^pok_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_pay_no,         pattern=r"^pno_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_mv_list,        pattern="^mv_list$"))
+    app.add_handler(CallbackQueryHandler(cb_mv_back,        pattern="^mv_back$"))
+    app.add_handler(CallbackQueryHandler(cb_mv_pro,         pattern="^mv_pro$"))
+    app.add_handler(CallbackQueryHandler(cb_ch_add,         pattern="^ch_add$"))
+    app.add_handler(CallbackQueryHandler(cb_ch_list,        pattern="^ch_list$"))
+    app.add_handler(CallbackQueryHandler(cb_ch_del,         pattern="^ch_del$"))
+    app.add_handler(CallbackQueryHandler(cb_dch,            pattern=r"^dch_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_ch_back,        pattern="^ch_back$"))
+    app.add_handler(CallbackQueryHandler(cb_adm_list,       pattern="^adm_list$"))
+    app.add_handler(CallbackQueryHandler(cb_st_cards,       pattern="^st_cards$"))
+    app.add_handler(CallbackQueryHandler(cb_st_prices,      pattern="^st_prices$"))
+    app.add_handler(CallbackQueryHandler(cb_st_back,        pattern="^st_back$"))
+    app.add_handler(CallbackQueryHandler(cb_cancel,         pattern="^x$"))
 
     # Admin menyu
     app.add_handler(MessageHandler(filters.Regex("^📊 Statistika$"),     msg_stats))
@@ -1690,7 +1707,7 @@ def main():
         app.run_webhook(
             listen="0.0.0.0", port=PORT,
             url_path=BOT_TOKEN,
-            webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}",
+            webhook_url=WEBHOOK_URL + "/" + BOT_TOKEN,
         )
     else:
         logging.info("Polling (local)...")
