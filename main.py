@@ -104,24 +104,18 @@ async def cmd_start(update: Update, ctx):
     u = update.effective_user
     db.add_user(u.id, u.first_name, u.username or "")
 
-    # Telegram kanallarni tekshir
-    unsubbed = await check_subs(ctx.bot, u.id)
-
-    if unsubbed or _has_non_telegram_channels():
-        # Barcha kanallarni ko'rsat
-        all_channels = await get_all_unsub_channels(ctx.bot, u.id)
-        if all_channels:
-            await update.message.reply_text(
-                "📢 <b>Botdan foydalanish uchun quyidagi kanallarga obuna boling:</b>\n\n"
-                "Obuna bolgach Tekshirish tugmasini bosing.",
-                parse_mode=H, reply_markup=kb.sub_kb(all_channels)
-            )
-            return
+    blocked, show_channels = await must_subscribe(ctx.bot, u.id)
+    if blocked:
+        await update.message.reply_text(
+            "📢 <b>Botdan foydalanish uchun quyidagi kanallarga obuna boling:</b>\n\n"
+            "Obuna bolgach Tekshirish tugmasini bosing.",
+            parse_mode=H, reply_markup=kb.sub_kb(show_channels)
+        )
+        return
 
     if db.is_admin(u.id):
         await update.message.reply_text(
-            f"👑 <b>Salom, {u.first_name}!</b>\n\n"
-            f"Admin paneliga xush kelibsiz.",
+            f"👑 <b>Salom, {u.first_name}!</b>\n\nAdmin paneliga xush kelibsiz.",
             parse_mode=H, reply_markup=kb.admin_kb()
         )
     else:
@@ -131,22 +125,44 @@ async def cmd_start(update: Update, ctx):
             parse_mode=H, reply_markup=kb.user_kb()
         )
 
-def _has_non_telegram_channels():
-    """Private va link kanallar bormi"""
-    chs = db.get_channels()
-    return any(c["type"] in ("private", "link") for c in chs)
+async def must_subscribe(bot, uid):
+    """
+    Foydalanuvchi barcha kanallarga obuna bo'lganmi?
+    - Telegram kanallar: obuna tekshiriladi
+    - Private/link kanallar: har doim ko'rsatiladi (tekshirib bo'lmaydi)
+    Qaytaradi: (to'siq_bormi, ko'rsatiladigan_kanallar)
+    """
+    all_chs = db.get_channels()
+    if not all_chs:
+        return False, []  # Kanallar yo'q — ruxsat
+
+    # Telegram kanallarni tekshir
+    unsubbed_telegram = await check_subs(bot, uid)
+
+    # Non-telegram kanallar (private/link) — har doim ko'rsatiladi
+    non_telegram = [c for c in all_chs if c.get("type", "telegram") in ("private", "link")]
+
+    # Ko'rsatiladigan kanallar = obuna bo'lmagan Telegram + barcha non-telegram
+    show_channels = unsubbed_telegram + non_telegram
+
+    # To'siq bor: Telegram kanalga obuna bo'lmagan YOKI non-telegram kanallar bor
+    blocked = len(unsubbed_telegram) > 0 or len(non_telegram) > 0
+
+    return blocked, show_channels
 
 async def cb_chk_sub(update: Update, ctx):
     q = update.callback_query
     await q.answer()
-    unsubbed = await check_subs(ctx.bot, q.from_user.id)
-    if unsubbed:
+    u = q.from_user
+
+    blocked, show_channels = await must_subscribe(ctx.bot, u.id)
+    if blocked:
         await q.answer(
-            "Hali Telegram kanalga obuna bolmadingiz!",
+            "Hali barcha kanallarga obuna bolmadingiz!",
             show_alert=True
         )
         return
-    u = q.from_user
+
     await q.edit_message_text("Obuna tasdiqlandi! Kino kodini yuboring.")
     mkb = kb.admin_kb() if db.is_admin(u.id) else kb.user_kb()
     await ctx.bot.send_message(u.id, "👇", reply_markup=mkb)
@@ -158,14 +174,16 @@ async def cb_chk_sub(update: Update, ctx):
 async def msg_find_movie(update: Update, ctx):
     u = update.effective_user
     code = update.message.text.strip()
-    unsubbed = await check_subs(ctx.bot, u.id)
-    if unsubbed:
-        all_ch = await get_all_unsub_channels(ctx.bot, u.id)
+
+    # Har safar kino so'raganda barcha kanallarni tekshir
+    blocked, show_channels = await must_subscribe(ctx.bot, u.id)
+    if blocked:
         await update.message.reply_text(
-            "📢 Avval kanallarga obuna boling!",
-            reply_markup=kb.sub_kb(all_ch)
+            "📢 Avval barcha kanallarga obuna boling!",
+            reply_markup=kb.sub_kb(show_channels)
         )
         return
+
     movie = db.get_movie(code)
     if not movie:
         await update.message.reply_text(
